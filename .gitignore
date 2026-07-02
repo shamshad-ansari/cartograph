@@ -4,5 +4,11 @@
 # CMake build tree
 /build/
 
+# Editor tooling index (symlink into build/)
+/compile_commands.json
+
+# Editor/IDE settings
+/.vscode/
+
 # Local issue tracker (not versioned)
 /issues/
