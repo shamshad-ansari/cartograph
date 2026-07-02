@@ -1,3 +1,8 @@
 # macOS
 .DS_Store
 
+# CMake build tree
+/build/
+
+# Local issue tracker (not versioned)
+/issues/
