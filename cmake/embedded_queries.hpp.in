@@ -13,4 +13,7 @@ namespace cartograph {
 inline constexpr std::string_view kCDefinitionsQuery =
     R"scm(@CARTOGRAPH_C_DEFINITIONS_QUERY@)scm";
 
+inline constexpr std::string_view kCCallsQuery =
+    R"scm(@CARTOGRAPH_C_CALLS_QUERY@)scm";
+
 }  // namespace cartograph

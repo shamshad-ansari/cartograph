@@ -17,4 +17,14 @@ const std::vector<NodeId>& Graph::nodes_named(std::string_view name) const {
   return it == by_name_.end() ? kNone : it->second;
 }
 
+void Graph::add_edge(NodeId caller, NodeId callee) {
+  callers_by_callee_[callee].push_back(caller);
+}
+
+const std::vector<NodeId>& Graph::callers_of(NodeId id) const {
+  static const std::vector<NodeId> kNone;
+  const auto it = callers_by_callee_.find(id);
+  return it == callers_by_callee_.end() ? kNone : it->second;
+}
+
 }  // namespace cartograph

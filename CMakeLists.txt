@@ -24,9 +24,12 @@ include(Dependencies)
 # directory. Reconfigure is triggered when a pattern file changes.
 set(CARTOGRAPH_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-  ${CMAKE_CURRENT_SOURCE_DIR}/queries/c/definitions.scm)
+  ${CMAKE_CURRENT_SOURCE_DIR}/queries/c/definitions.scm
+  ${CMAKE_CURRENT_SOURCE_DIR}/queries/c/calls.scm)
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/queries/c/definitions.scm
   CARTOGRAPH_C_DEFINITIONS_QUERY)
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/queries/c/calls.scm
+  CARTOGRAPH_C_CALLS_QUERY)
 configure_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embedded_queries.hpp.in
   ${CARTOGRAPH_GENERATED_DIR}/cartograph/embedded_queries.hpp

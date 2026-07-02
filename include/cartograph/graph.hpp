@@ -43,9 +43,18 @@ class Graph {
   // NodeIds whose name equals `name`, in insertion order; empty if none.
   const std::vector<NodeId>& nodes_named(std::string_view name) const;
 
+  // Record a CALLS edge: `caller` calls `callee`. CALLS is the only edge kind
+  // this slice has; the edge is indexed for reverse ("who calls?") lookup.
+  void add_edge(NodeId caller, NodeId callee);
+
+  // NodeIds with a CALLS edge into `id` — its callers — in insertion order;
+  // empty if none.
+  const std::vector<NodeId>& callers_of(NodeId id) const;
+
  private:
   std::vector<Node> nodes_;
   std::unordered_map<std::string, std::vector<NodeId>> by_name_;
+  std::unordered_map<NodeId, std::vector<NodeId>> callers_by_callee_;
 };
 
 }  // namespace cartograph
