@@ -19,6 +19,15 @@ enum class NodeKind {
   Function,
 };
 
+// A definition's C linkage — the property that decides which calls can see it.
+// `Internal` is a `static` definition, visible only within its own file;
+// `External` (the default) is visible across translation units. Call resolution
+// uses this to pick a target (ADR-0005).
+enum class Linkage {
+  External,
+  Internal,
+};
+
 // One entity in the code graph. For this slice: a function definition and where
 // it was found.
 struct Node {
@@ -26,6 +35,18 @@ struct Node {
   std::string name;
   std::string file;         // path as indexed
   std::uint32_t line;       // 1-based line of the definition's name
+  Linkage linkage;          // internal (static) vs external, for resolution
+};
+
+// A resolution that C's linkage rules cannot make unambiguous, surfaced rather
+// than silently guessed. Today the sole case is a call to a name with more than
+// one external-linkage definition — a real-C link error — which is linked to
+// all candidates and flagged here (ADR-0005).
+struct Diagnostic {
+  std::string callee;              // the ambiguous name at the call site
+  std::string caller_file;         // file containing the call
+  std::uint32_t caller_line;       // 1-based line of the call site
+  std::vector<NodeId> candidates;  // every definition the call was linked to
 };
 
 // In-memory code graph. Nodes live in a flat vector addressed by NodeId, with a
@@ -51,10 +72,17 @@ class Graph {
   // empty if none.
   const std::vector<NodeId>& callers_of(NodeId id) const;
 
+  // Record an ambiguous/erroneous resolution surfaced during indexing.
+  void add_diagnostic(Diagnostic diagnostic);
+
+  // Every diagnostic collected while building the graph, in the order found.
+  const std::vector<Diagnostic>& diagnostics() const { return diagnostics_; }
+
  private:
   std::vector<Node> nodes_;
   std::unordered_map<std::string, std::vector<NodeId>> by_name_;
   std::unordered_map<NodeId, std::vector<NodeId>> callers_by_callee_;
+  std::vector<Diagnostic> diagnostics_;
 };
 
 }  // namespace cartograph

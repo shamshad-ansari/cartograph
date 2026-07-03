@@ -70,6 +70,22 @@ TSNode function_name_node(TSNode fn_def) {
   return field(d, "declarator");
 }
 
+// Whether `fn_def` carries a `static` storage-class specifier — the mark of
+// internal linkage. Storage-class specifiers appear as direct children of the
+// function_definition (see the tree-sitter-c grammar), so a single-level scan
+// suffices; their node text is the keyword itself.
+bool has_static_storage(TSNode fn_def, std::string_view source) {
+  const std::uint32_t children = ts_node_child_count(fn_def);
+  for (std::uint32_t i = 0; i < children; ++i) {
+    const TSNode child = ts_node_child(fn_def, i);
+    if (std::string_view(ts_node_type(child)) == "storage_class_specifier" &&
+        node_text(child, source) == "static") {
+      return true;
+    }
+  }
+  return false;
+}
+
 // The nearest enclosing function_definition of `node`, or a null node if the
 // call is not inside one.
 TSNode enclosing_function(TSNode node) {
@@ -117,6 +133,9 @@ std::vector<DefinitionFact> extract_definitions(const Tree& tree,
       DefinitionFact fact;
       fact.name = std::string(source.substr(start, end - start));
       fact.line = ts_node_start_point(node).row + 1;
+      // The function_definition owns the storage class; climb from the name.
+      const TSNode fn = enclosing_function(node);
+      fact.is_static = !ts_node_is_null(fn) && has_static_storage(fn, source);
       facts.push_back(std::move(fact));
     }
   }

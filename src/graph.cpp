@@ -27,4 +27,8 @@ const std::vector<NodeId>& Graph::callers_of(NodeId id) const {
   return it == callers_by_callee_.end() ? kNone : it->second;
 }
 
+void Graph::add_diagnostic(Diagnostic diagnostic) {
+  diagnostics_.push_back(std::move(diagnostic));
+}
+
 }  // namespace cartograph

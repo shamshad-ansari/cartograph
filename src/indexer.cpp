@@ -42,6 +42,7 @@ Graph index_directory(const std::filesystem::path& dir) {
   struct PendingCall {
     NodeId caller;
     std::string callee;
+    std::uint32_t line;  // 1-based line of the call site, for diagnostics
   };
   std::vector<PendingCall> pending;
 
@@ -65,24 +66,55 @@ Graph index_directory(const std::filesystem::path& dir) {
     // unit, so name -> node is unambiguous within this file.
     std::unordered_map<std::string, NodeId> local_defs;
     for (DefinitionFact& fact : extract_definitions(tree, source)) {
+      const Linkage linkage =
+          fact.is_static ? Linkage::Internal : Linkage::External;
       const NodeId id = graph.add_node(
-          Node{NodeKind::Function, fact.name, path.string(), fact.line});
+          Node{NodeKind::Function, fact.name, path.string(), fact.line, linkage});
       local_defs.emplace(std::move(fact.name), id);
     }
 
     for (CallFact& call : extract_calls(tree, source)) {
       const auto caller = local_defs.find(call.caller);
       if (caller == local_defs.end()) continue;  // enclosing def not indexed
-      pending.push_back({caller->second, std::move(call.callee)});
+      pending.push_back({caller->second, std::move(call.callee), call.line});
     }
   }
 
-  // Second pass — naive name resolution: a call links to every definition that
-  // bears the callee's name across the whole file set. Linkage rules that would
-  // pick a single target arrive in issue 0004.
+  // Second pass — linkage-aware resolution (ADR-0005). For each call we apply
+  // C's visibility rules over the indexed definitions of the callee's name:
+  //
+  //   1. A `static` definition in the caller's own file shadows everything: the
+  //      call resolves to it alone.
+  //   2. Otherwise the call resolves to the external-linkage definitions, which
+  //      a static in some *other* file is invisible to. Zero of these leaves
+  //      the call unresolved (no edge).
   for (const PendingCall& call : pending) {
-    for (const NodeId callee : graph.nodes_named(call.callee)) {
-      graph.add_edge(call.caller, callee);
+    const std::string& caller_file = graph.node(call.caller).file;
+    const std::vector<NodeId>& candidates = graph.nodes_named(call.callee);
+
+    bool bound_local = false;
+    for (const NodeId id : candidates) {
+      const Node& def = graph.node(id);
+      if (def.linkage == Linkage::Internal && def.file == caller_file) {
+        graph.add_edge(call.caller, id);
+        bound_local = true;
+        break;  // at most one static of a given name per translation unit
+      }
+    }
+    if (bound_local) continue;
+
+    std::vector<NodeId> externals;
+    for (const NodeId id : candidates) {
+      if (graph.node(id).linkage == Linkage::External) externals.push_back(id);
+    }
+    for (const NodeId id : externals) graph.add_edge(call.caller, id);
+
+    // More than one external definition of a name is a real C link error. We
+    // cannot pick one, so we keep every edge and flag the ambiguity rather than
+    // guessing (ADR-0005).
+    if (externals.size() > 1) {
+      graph.add_diagnostic(
+          Diagnostic{call.callee, caller_file, call.line, std::move(externals)});
     }
   }
   return graph;

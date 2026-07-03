@@ -54,10 +54,10 @@ TEST(WhoCalls, FunctionNobodyCallsHasNoCallers) {
   EXPECT_TRUE(callers(graph, "main").empty());
 }
 
-// Naive (lexical) resolution links a call to *every* definition bearing the
-// callee's name — `shared` is defined in two files, and the single caller links
-// to both. Linkage rules that would disambiguate arrive in issue 0004.
-TEST(WhoCalls, NaiveResolutionLinksEveryDefinitionOfName) {
+// `shared` has two *external* definitions — a real C link error that linkage
+// rules cannot disambiguate (issue 0004). Rather than guess, the call links to
+// both definitions (and is flagged as a diagnostic; see linkage_test.cpp).
+TEST(WhoCalls, ConflictingExternalsLinkToEveryDefinition) {
   const cartograph::Graph graph = cartograph::index_directory(calls_dir());
 
   const std::vector<cartograph::NodeId>& defs = graph.nodes_named("shared");

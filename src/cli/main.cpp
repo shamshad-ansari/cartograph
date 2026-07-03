@@ -83,6 +83,21 @@ int cmd_parse(std::string_view path) {
   return 0;
 }
 
+// Print any resolution diagnostics to stderr so an ambiguous link error is
+// visible to the user without polluting the query result on stdout.
+void report_diagnostics(const cartograph::Graph& graph) {
+  for (const cartograph::Diagnostic& d : graph.diagnostics()) {
+    std::cerr << "cartograph: warning: call to '" << d.callee << "' at "
+              << d.caller_file << ':' << d.caller_line << " has "
+              << d.candidates.size()
+              << " conflicting external definitions:\n";
+    for (const cartograph::NodeId id : d.candidates) {
+      const cartograph::Node& node = graph.node(id);
+      std::cerr << "  " << node.file << ':' << node.line << '\n';
+    }
+  }
+}
+
 int cmd_find_definition(const std::vector<std::string_view>& args) {
   std::string_view name;
   std::string_view dir;
@@ -127,6 +142,7 @@ int cmd_who_calls(const std::vector<std::string_view>& args) {
   }
 
   const cartograph::Graph graph = cartograph::index_directory(root);
+  report_diagnostics(graph);
 
   // A caller is listed once even if it calls the target repeatedly or the name
   // has several definitions; std::set both dedupes and sorts by (file, line).

@@ -19,6 +19,7 @@ class Tree;
 struct DefinitionFact {
   std::string name;
   std::uint32_t line;  // 1-based line of the function's name
+  bool is_static;      // has a `static` storage class -> internal linkage
 };
 
 // A call site: the enclosing function's name (`caller`) and the still-
