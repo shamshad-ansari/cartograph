@@ -18,6 +18,14 @@ const std::vector<NodeId>& Graph::nodes_named(std::string_view name) const {
   return it == by_name_.end() ? kNone : it->second;
 }
 
+std::size_t Graph::edge_count() const {
+  std::size_t total = definition_by_decl_.size();  // DECLARES: one per decl
+  for (const auto& [callee, callers] : callers_by_callee_) total += callers.size();
+  for (const auto& [file, includees] : includees_by_file_) total += includees.size();
+  for (const auto& [type, users] : users_by_type_) total += users.size();
+  return total;
+}
+
 void Graph::add_edge(NodeId caller, NodeId callee) {
   callers_by_callee_[callee].push_back(caller);
 }
@@ -94,6 +102,10 @@ std::optional<NodeId> Graph::definition_of(NodeId decl) const {
 
 void Graph::add_diagnostic(Diagnostic diagnostic) {
   diagnostics_.push_back(std::move(diagnostic));
+}
+
+void Graph::add_skipped_file(SkippedFile skipped) {
+  skipped_files_.push_back(std::move(skipped));
 }
 
 }  // namespace cartograph

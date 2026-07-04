@@ -29,6 +29,12 @@ public:
   // True when parsing produced no tree at all.
   bool empty() const noexcept { return tree_ == nullptr; }
 
+  // True when the tree contains a syntax error — an ERROR or a missing node
+  // anywhere in it. Tree-sitter is error-tolerant and still yields a tree for
+  // malformed input, so this is how indexing decides a file is unparseable and
+  // should be skipped. False for an empty tree (nothing was parsed).
+  bool has_error() const noexcept;
+
   // The kind of the root node, e.g. "translation_unit" for a C file.
   std::string root_kind() const;
 

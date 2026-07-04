@@ -69,6 +69,11 @@ std::string Tree::root_kind() const {
   return ts_node_type(ts_tree_root_node(tree_));
 }
 
+bool Tree::has_error() const noexcept {
+  if (tree_ == nullptr) return false;
+  return ts_node_has_error(ts_tree_root_node(tree_));
+}
+
 namespace {
 
 void dump_node(TSNode node, std::ostream& out, int depth) {

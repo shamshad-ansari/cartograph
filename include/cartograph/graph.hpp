@@ -55,6 +55,7 @@ struct Node {
   std::string file;         // path as indexed
   std::uint32_t line;       // 1-based line of the definition's name
   Linkage linkage;          // internal (static) vs external, for resolution
+  std::uint64_t hash = 0;   // content hash of the file (File nodes only; else 0)
 };
 
 // A node reached by walking CALLS edges in reverse from a query target, paired
@@ -76,6 +77,14 @@ struct UnresolvedInclude {
   std::string target;   // the path as written (delimiters stripped)
   bool is_system;       // `<...>` form vs an unresolved local `"..."`
   std::uint32_t line;   // 1-based line of the #include
+};
+
+// A file that was discovered during the crawl but not indexed — it could not be
+// read, or tree-sitter found a syntax error in it. Recorded so a run over a real
+// repository is honest about what it skipped instead of silently dropping files.
+struct SkippedFile {
+  std::string path;     // the file that was skipped
+  std::string reason;   // why: "unreadable" or "syntax error"
 };
 
 // A resolution that C's linkage rules cannot make unambiguous, surfaced rather
@@ -100,6 +109,11 @@ class Graph {
 
   const Node& node(NodeId id) const { return nodes_[id]; }
   std::size_t size() const noexcept { return nodes_.size(); }
+
+  // Total number of edges of every kind — CALLS, INCLUDES, USES_TYPE, and
+  // DECLARES — for the index summary. INCLUDES is counted once per edge, not
+  // once per direction.
+  std::size_t edge_count() const;
 
   // NodeIds whose name equals `name`, in insertion order; empty if none.
   const std::vector<NodeId>& nodes_named(std::string_view name) const;
@@ -165,6 +179,12 @@ class Graph {
   // Every diagnostic collected while building the graph, in the order found.
   const std::vector<Diagnostic>& diagnostics() const { return diagnostics_; }
 
+  // Record a file that the crawl discovered but did not index.
+  void add_skipped_file(SkippedFile skipped);
+
+  // Every skipped file collected while crawling, in discovery order.
+  const std::vector<SkippedFile>& skipped_files() const { return skipped_files_; }
+
  private:
   std::vector<Node> nodes_;
   std::unordered_map<std::string, std::vector<NodeId>> by_name_;
@@ -175,6 +195,7 @@ class Graph {
   std::unordered_map<NodeId, NodeId> definition_by_decl_;
   std::vector<UnresolvedInclude> unresolved_includes_;
   std::vector<Diagnostic> diagnostics_;
+  std::vector<SkippedFile> skipped_files_;
 };
 
 }  // namespace cartograph

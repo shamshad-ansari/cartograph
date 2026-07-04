@@ -30,6 +30,18 @@ bool read_file(const std::filesystem::path& path, std::string& out) {
   return true;
 }
 
+// 64-bit FNV-1a content hash. Deterministic and dependency-free — the property
+// that matters for the incremental-reindex groundwork (issue 0016), where a
+// file's stored hash is compared against a fresh one to decide if it changed.
+std::uint64_t content_hash(std::string_view data) {
+  std::uint64_t hash = 1469598103934665603ULL;  // FNV offset basis
+  for (const unsigned char byte : data) {
+    hash ^= byte;
+    hash *= 1099511628211ULL;  // FNV prime
+  }
+  return hash;
+}
+
 }  // namespace
 
 Graph index_directory(const std::filesystem::path& dir) {
@@ -74,20 +86,33 @@ Graph index_directory(const std::filesystem::path& dir) {
   std::vector<PendingInclude> pending_includes;
   std::unordered_map<std::string, NodeId> file_by_path;
 
-  // Iterate the directory non-recursively using the error-code overloads so a
-  // vanished or unreadable entry stops the walk cleanly rather than throwing.
-  // Recursive crawling arrives in issue 0009.
+  // Walk the whole tree under `dir`. The error-code overloads plus
+  // skip_permission_denied keep the crawl from throwing on an unreadable
+  // subdirectory, so one bad entry never aborts indexing of a real repository.
   std::error_code ec;
-  std::filesystem::directory_iterator it(dir, ec);
-  const std::filesystem::directory_iterator end;
+  std::filesystem::recursive_directory_iterator it(
+      dir, std::filesystem::directory_options::skip_permission_denied, ec);
+  const std::filesystem::recursive_directory_iterator end;
   for (; !ec && it != end; it.increment(ec)) {
     const std::filesystem::path& path = it->path();
-    if (!it->is_regular_file(ec) || !is_c_source(path)) continue;
+    std::error_code stat_ec;
+    if (!it->is_regular_file(stat_ec) || stat_ec || !is_c_source(path)) continue;
 
     std::string source;
-    if (!read_file(path, source)) continue;
+    if (!read_file(path, source)) {
+      graph.add_skipped_file(SkippedFile{path.string(), "unreadable"});
+      continue;
+    }
 
     const Tree tree = parser.parse(source);
+
+    // A malformed file still yields a (partial) tree from the error-tolerant
+    // parser; rather than index half-parsed garbage we skip it with a warning
+    // and press on, so a single bad file doesn't poison the whole index.
+    if (tree.has_error()) {
+      graph.add_skipped_file(SkippedFile{path.string(), "syntax error"});
+      continue;
+    }
 
     // A File node per indexed file — an INCLUDES endpoint — keyed by normalized
     // path so an `#include` can resolve to it. The name is the basename, which
@@ -95,7 +120,8 @@ Graph index_directory(const std::filesystem::path& dir) {
     const NodeId file_id = graph.add_node(Node{NodeKind::File,
                                                path.filename().string(),
                                                path.string(), 0,
-                                               Linkage::External});
+                                               Linkage::External,
+                                               content_hash(source)});
     file_by_path.emplace(path.lexically_normal().string(), file_id);
 
     for (IncludeFact& inc : extract_includes(tree, source)) {

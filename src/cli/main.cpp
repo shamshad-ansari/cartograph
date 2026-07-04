@@ -31,7 +31,9 @@ int usage(std::ostream& out) {
          "  include-graph <file> --dir <path>    print the files <file> "
          "includes and the files that include it\n"
          "  who-uses-type <name> --dir <path>    print file:line of each "
-         "function that references type <name>\n";
+         "function that references type <name>\n"
+         "  index <path>                         recursively index <path> and "
+         "print file/node/edge counts\n";
   return 2;
 }
 
@@ -91,9 +93,14 @@ int cmd_parse(std::string_view path) {
   return 0;
 }
 
-// Print any resolution diagnostics to stderr so an ambiguous link error is
-// visible to the user without polluting the query result on stdout.
+// Print any resolution diagnostics and skipped-file warnings to stderr, so an
+// ambiguous link error or an unparseable file is visible to the user without
+// polluting the query result on stdout.
 void report_diagnostics(const cartograph::Graph& graph) {
+  for (const cartograph::SkippedFile& s : graph.skipped_files()) {
+    std::cerr << "cartograph: warning: skipped " << s.path << " (" << s.reason
+              << ")\n";
+  }
   for (const cartograph::Diagnostic& d : graph.diagnostics()) {
     std::cerr << "cartograph: warning: call to '" << d.callee << "' at "
               << d.caller_file << ':' << d.caller_line << " has "
@@ -291,6 +298,33 @@ int cmd_include_graph(const std::vector<std::string_view>& args) {
   return 0;
 }
 
+int cmd_index(const std::vector<std::string_view>& args) {
+  if (args.size() != 1) {
+    std::cerr << "cartograph: 'index' expects exactly one directory argument\n";
+    return usage(std::cerr);
+  }
+  const std::filesystem::path root(args[0]);
+  if (!std::filesystem::is_directory(root)) {
+    std::cerr << "cartograph: not a directory: '" << args[0] << "'\n";
+    return 1;
+  }
+
+  const cartograph::Graph graph = cartograph::index_directory(root);
+  report_diagnostics(graph);  // skipped-file warnings, to stderr
+
+  // File count is the number of File nodes; the crawl makes one per indexed file.
+  std::size_t files = 0;
+  for (cartograph::NodeId id = 0; id < graph.size(); ++id) {
+    if (graph.node(id).kind == cartograph::NodeKind::File) ++files;
+  }
+
+  std::cout << "files:   " << files << '\n'
+            << "nodes:   " << graph.size() << '\n'
+            << "edges:   " << graph.edge_count() << '\n'
+            << "skipped: " << graph.skipped_files().size() << '\n';
+  return 0;
+}
+
 int cmd_who_uses_type(const std::vector<std::string_view>& args) {
   std::string_view name;
   std::string_view dir;
@@ -360,6 +394,9 @@ int main(int argc, char** argv) {
   if (command == "who-uses-type") {
     return cmd_who_uses_type(
         std::vector<std::string_view>(argv + 2, argv + argc));
+  }
+  if (command == "index") {
+    return cmd_index(std::vector<std::string_view>(argv + 2, argv + argc));
   }
 
   std::cerr << "cartograph: unknown command '" << command << "'\n";
