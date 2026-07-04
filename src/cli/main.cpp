@@ -29,7 +29,9 @@ int usage(std::ostream& out) {
          "  blast-radius <name> --dir <path>     print file:line of every "
          "direct and indirect caller of <name>\n"
          "  include-graph <file> --dir <path>    print the files <file> "
-         "includes and the files that include it\n";
+         "includes and the files that include it\n"
+         "  who-uses-type <name> --dir <path>    print file:line of each "
+         "function that references type <name>\n";
   return 2;
 }
 
@@ -289,6 +291,40 @@ int cmd_include_graph(const std::vector<std::string_view>& args) {
   return 0;
 }
 
+int cmd_who_uses_type(const std::vector<std::string_view>& args) {
+  std::string_view name;
+  std::string_view dir;
+  if (!parse_name_and_dir(args, "who-uses-type", name, dir)) {
+    return usage(std::cerr);
+  }
+
+  const std::filesystem::path root(dir);
+  if (!std::filesystem::is_directory(root)) {
+    std::cerr << "cartograph: not a directory: '" << dir << "'\n";
+    return 1;
+  }
+
+  const cartograph::Graph graph = cartograph::index_directory(root);
+
+  // Seed with every type node carrying the name — a tag and a typedef can share
+  // one — and collect their referencing functions. A function is listed once
+  // even if it references the type repeatedly or via several matching nodes;
+  // std::set both dedupes and sorts by (file, line).
+  std::set<std::pair<std::string, std::uint32_t>> hits;
+  for (const cartograph::NodeId type : graph.nodes_named(name)) {
+    if (!cartograph::is_type_node(graph.node(type).kind)) continue;
+    for (const cartograph::NodeId user : graph.users_of(type)) {
+      const cartograph::Node& node = graph.node(user);
+      hits.emplace(node.file, node.line);
+    }
+  }
+
+  for (const auto& [file, line] : hits) {
+    std::cout << file << ':' << line << '\n';
+  }
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -319,6 +355,10 @@ int main(int argc, char** argv) {
   }
   if (command == "include-graph") {
     return cmd_include_graph(
+        std::vector<std::string_view>(argv + 2, argv + argc));
+  }
+  if (command == "who-uses-type") {
+    return cmd_who_uses_type(
         std::vector<std::string_view>(argv + 2, argv + argc));
   }
 

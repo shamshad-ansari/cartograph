@@ -27,7 +27,9 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
   ${CMAKE_CURRENT_SOURCE_DIR}/queries/c/definitions.scm
   ${CMAKE_CURRENT_SOURCE_DIR}/queries/c/declarations.scm
   ${CMAKE_CURRENT_SOURCE_DIR}/queries/c/calls.scm
-  ${CMAKE_CURRENT_SOURCE_DIR}/queries/c/includes.scm)
+  ${CMAKE_CURRENT_SOURCE_DIR}/queries/c/includes.scm
+  ${CMAKE_CURRENT_SOURCE_DIR}/queries/c/types.scm
+  ${CMAKE_CURRENT_SOURCE_DIR}/queries/c/type_uses.scm)
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/queries/c/definitions.scm
   CARTOGRAPH_C_DEFINITIONS_QUERY)
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/queries/c/declarations.scm
@@ -36,6 +38,10 @@ file(READ ${CMAKE_CURRENT_SOURCE_DIR}/queries/c/calls.scm
   CARTOGRAPH_C_CALLS_QUERY)
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/queries/c/includes.scm
   CARTOGRAPH_C_INCLUDES_QUERY)
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/queries/c/types.scm
+  CARTOGRAPH_C_TYPES_QUERY)
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/queries/c/type_uses.scm
+  CARTOGRAPH_C_TYPE_USES_QUERY)
 configure_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embedded_queries.hpp.in
   ${CARTOGRAPH_GENERATED_DIR}/cartograph/embedded_queries.hpp

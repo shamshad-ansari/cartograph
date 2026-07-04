@@ -18,11 +18,25 @@ using NodeId = std::uint32_t;
 // (a body); a `FunctionDecl` is a prototype — a declaration without a body,
 // typically in a header — linked to its defining `Function` when one is indexed.
 // A `File` is an indexed source or header file, the endpoint of INCLUDES edges.
+// `Struct`, `Union`, `Enum`, and `Typedef` are user-defined types — the tag of
+// an aggregate definition or a typedef alias — and the endpoint of USES_TYPE
+// edges from the functions that reference them.
 enum class NodeKind {
   Function,
   FunctionDecl,
   File,
+  Struct,
+  Union,
+  Enum,
+  Typedef,
 };
+
+// Whether `kind` is one of the user-defined type nodes (the USES_TYPE target
+// kinds), as opposed to a function, declaration, or file node.
+inline bool is_type_node(NodeKind kind) {
+  return kind == NodeKind::Struct || kind == NodeKind::Union ||
+         kind == NodeKind::Enum || kind == NodeKind::Typedef;
+}
 
 // A definition's C linkage — the property that decides which calls can see it.
 // `Internal` is a `static` definition, visible only within its own file;
@@ -127,6 +141,15 @@ class Graph {
     return unresolved_includes_;
   }
 
+  // Record a USES_TYPE edge: function `user` references type `type` (a Struct,
+  // Union, Enum, or Typedef node). Indexed for reverse ("who uses this type?")
+  // lookup.
+  void add_uses_type(NodeId user, NodeId type);
+
+  // Function nodes with a USES_TYPE edge into `id` — the functions that
+  // reference the type — in insertion order; empty if none.
+  const std::vector<NodeId>& users_of(NodeId id) const;
+
   // Record a DECLARES link: the declaration `decl` (a FunctionDecl) declares the
   // definition `def` (a Function). A declaration has at most one definition in
   // the indexed set, so a later call replaces any earlier one.
@@ -148,6 +171,7 @@ class Graph {
   std::unordered_map<NodeId, std::vector<NodeId>> callers_by_callee_;
   std::unordered_map<NodeId, std::vector<NodeId>> includees_by_file_;
   std::unordered_map<NodeId, std::vector<NodeId>> includers_by_file_;
+  std::unordered_map<NodeId, std::vector<NodeId>> users_by_type_;
   std::unordered_map<NodeId, NodeId> definition_by_decl_;
   std::vector<UnresolvedInclude> unresolved_includes_;
   std::vector<Diagnostic> diagnostics_;

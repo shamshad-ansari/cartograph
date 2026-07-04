@@ -50,6 +50,17 @@ Graph index_directory(const std::filesystem::path& dir) {
   // reason: a prototype's defining function may live in a file indexed later.
   std::vector<NodeId> pending_decls;
 
+  // Type references, resolved in a second pass: a function may reference a type
+  // declared in a header indexed later, so we record the (already-known) using
+  // function node with the still-unresolved type name and bind USES_TYPE edges
+  // once every type node exists.
+  struct PendingTypeUse {
+    NodeId user;
+    std::string type;
+    std::uint32_t line;  // 1-based line of the reference, for future diagnostics
+  };
+  std::vector<PendingTypeUse> pending_type_uses;
+
   // Include directives, resolved in a second pass: an included file may be
   // indexed after the file that includes it, so we defer until every File node
   // exists. `file_by_path` maps each indexed file's normalized path to its File
@@ -118,6 +129,28 @@ Graph index_directory(const std::filesystem::path& dir) {
                                             path.string(), decl.line,
                                             Linkage::External});
       pending_decls.push_back(id);
+    }
+
+    // User-defined types become typed nodes. Linkage is meaningless for a type;
+    // External is the neutral default, matching the other non-function nodes.
+    for (TypeFact& type : extract_types(tree, source)) {
+      NodeKind kind = NodeKind::Struct;
+      switch (type.category) {
+        case TypeCategory::Struct:  kind = NodeKind::Struct;  break;
+        case TypeCategory::Union:   kind = NodeKind::Union;   break;
+        case TypeCategory::Enum:    kind = NodeKind::Enum;    break;
+        case TypeCategory::Typedef: kind = NodeKind::Typedef; break;
+      }
+      graph.add_node(
+          Node{kind, type.name, path.string(), type.line, Linkage::External});
+    }
+
+    // Type references, attributed to their enclosing function (already a node in
+    // this file). The type name is resolved to type node(s) in a later pass.
+    for (TypeUseFact& use : extract_type_uses(tree, source)) {
+      const auto user = local_defs.find(use.function);
+      if (user == local_defs.end()) continue;  // enclosing def not indexed
+      pending_type_uses.push_back({user->second, std::move(use.type), use.line});
     }
   }
 
@@ -206,6 +239,17 @@ Graph index_directory(const std::filesystem::path& dir) {
     }
     graph.add_unresolved_include(
         UnresolvedInclude{inc.includer, inc.target, inc.is_system, inc.line});
+  }
+
+  // Fifth pass — resolve type references. A referenced name binds to every type
+  // node that carries it: usually one, but a tag and typedef sharing a name
+  // (`typedef struct Point { ... } Point;`) are both legitimate targets. Names
+  // with no type node — a built-in slipped through, or a type declared outside
+  // the indexed set — bind to nothing and form no edge, never an error.
+  for (const PendingTypeUse& use : pending_type_uses) {
+    for (const NodeId id : graph.nodes_named(use.type)) {
+      if (is_type_node(graph.node(id).kind)) graph.add_uses_type(use.user, id);
+    }
   }
   return graph;
 }

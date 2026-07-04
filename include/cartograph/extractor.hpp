@@ -49,6 +49,35 @@ struct IncludeFact {
   std::uint32_t line;  // 1-based line of the #include directive
 };
 
+// The category of a user-defined type declaration. Kept as an extractor-local
+// enum (rather than reaching for graph.hpp's NodeKind) so extraction stays
+// decoupled from graph construction; the indexer maps it to a NodeKind.
+enum class TypeCategory {
+  Struct,
+  Union,
+  Enum,
+  Typedef,
+};
+
+// A user-defined type declaration: the tag of an aggregate definition (a struct,
+// union, or enum with a body) or a typedef alias, plus which of those it is and
+// where it was found.
+struct TypeFact {
+  std::string name;
+  std::uint32_t line;  // 1-based line of the type's name
+  TypeCategory category;
+};
+
+// A site where a function references a type: the enclosing function's name and
+// the still-unresolved type name it mentions (in a return type, parameter, or
+// local declaration). Resolution to a type node happens later, in the indexer,
+// once every file's type declarations are known.
+struct TypeUseFact {
+  std::string function;  // enclosing function's name
+  std::string type;      // the referenced type name, unresolved
+  std::uint32_t line;    // 1-based line of the reference
+};
+
 // Extract function-definition facts from an already-parsed C source `tree`.
 // `source` must be the exact buffer the tree was parsed from; it is used to read
 // captured identifier text. Returns an empty vector for an empty tree.
@@ -74,5 +103,18 @@ std::vector<CallFact> extract_calls(const Tree& tree, std::string_view source);
 // was parsed from. Returns an empty vector for an empty tree.
 std::vector<IncludeFact> extract_includes(const Tree& tree,
                                           std::string_view source);
+
+// Extract user-defined type declarations (struct/union/enum definitions and
+// typedefs) from an already-parsed C source `tree`. `source` must be the buffer
+// the tree was parsed from. Returns an empty vector for an empty tree.
+std::vector<TypeFact> extract_types(const Tree& tree, std::string_view source);
+
+// Extract type-reference facts from an already-parsed C source `tree`. Each
+// reference is attributed to the function_definition that encloses it;
+// references outside a recognized function definition (e.g. a type used in
+// another type's declaration) are dropped. `source` must be the buffer the tree
+// was parsed from. Returns an empty vector for an empty tree.
+std::vector<TypeUseFact> extract_type_uses(const Tree& tree,
+                                           std::string_view source);
 
 }  // namespace cartograph

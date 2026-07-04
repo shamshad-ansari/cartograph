@@ -68,6 +68,16 @@ const std::vector<NodeId>& Graph::included_by(NodeId id) const {
   return it == includers_by_file_.end() ? kNone : it->second;
 }
 
+void Graph::add_uses_type(NodeId user, NodeId type) {
+  users_by_type_[type].push_back(user);
+}
+
+const std::vector<NodeId>& Graph::users_of(NodeId id) const {
+  static const std::vector<NodeId> kNone;
+  const auto it = users_by_type_.find(id);
+  return it == users_by_type_.end() ? kNone : it->second;
+}
+
 void Graph::add_unresolved_include(UnresolvedInclude include) {
   unresolved_includes_.push_back(std::move(include));
 }

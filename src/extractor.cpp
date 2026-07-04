@@ -219,4 +219,59 @@ std::vector<IncludeFact> extract_includes(const Tree& tree,
   return facts;
 }
 
+std::vector<TypeFact> extract_types(const Tree& tree, std::string_view source) {
+  std::vector<TypeFact> facts;
+  if (tree.empty()) return facts;
+
+  // The query captures the name of each type definition; its category is the
+  // node that owns the name — a struct/union/enum specifier or a typedef. Doing
+  // the mapping here rather than in the pattern keeps a single capture name for
+  // all four kinds (see types.scm).
+  for (const TSNode node : capture_nodes(tree, kCTypesQuery, "name")) {
+    const TSNode parent = ts_node_parent(node);
+    if (ts_node_is_null(parent)) continue;
+    const std::string_view kind = ts_node_type(parent);
+
+    TypeFact fact;
+    if (kind == "struct_specifier") {
+      fact.category = TypeCategory::Struct;
+    } else if (kind == "union_specifier") {
+      fact.category = TypeCategory::Union;
+    } else if (kind == "enum_specifier") {
+      fact.category = TypeCategory::Enum;
+    } else if (kind == "type_definition") {
+      fact.category = TypeCategory::Typedef;
+    } else {
+      continue;  // capture from an unexpected shape — skip rather than guess
+    }
+    fact.name = node_text(node, source);
+    fact.line = ts_node_start_point(node).row + 1;
+    facts.push_back(std::move(fact));
+  }
+  return facts;
+}
+
+std::vector<TypeUseFact> extract_type_uses(const Tree& tree,
+                                           std::string_view source) {
+  std::vector<TypeUseFact> facts;
+  if (tree.empty()) return facts;
+
+  // Every type_identifier is a candidate reference; we keep only those inside a
+  // function, attributing each to the enclosing function — the same climb the
+  // call extractor performs, so references at any body depth are captured.
+  for (const TSNode node : capture_nodes(tree, kCTypeUsesQuery, "type")) {
+    const TSNode fn = enclosing_function(node);
+    if (ts_node_is_null(fn)) continue;  // e.g. a type used inside another type
+    const TSNode function = function_name_node(fn);
+    if (ts_node_is_null(function)) continue;  // unrecognized declarator shape
+
+    TypeUseFact fact;
+    fact.function = node_text(function, source);
+    fact.type = node_text(node, source);
+    fact.line = ts_node_start_point(node).row + 1;
+    facts.push_back(std::move(fact));
+  }
+  return facts;
+}
+
 }  // namespace cartograph
