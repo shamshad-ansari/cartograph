@@ -25,7 +25,9 @@ int usage(std::ostream& out) {
          "  find-declarations <name> --dir <path>  print file:line of each "
          "declaration of <name>\n"
          "  who-calls <name> --dir <path>        print file:line of each "
-         "function that calls <name>\n";
+         "function that calls <name>\n"
+         "  blast-radius <name> --dir <path>     print file:line of every "
+         "direct and indirect caller of <name>\n";
   return 2;
 }
 
@@ -195,6 +197,41 @@ int cmd_who_calls(const std::vector<std::string_view>& args) {
   return 0;
 }
 
+int cmd_blast_radius(const std::vector<std::string_view>& args) {
+  std::string_view name;
+  std::string_view dir;
+  if (!parse_name_and_dir(args, "blast-radius", name, dir)) {
+    return usage(std::cerr);
+  }
+
+  const std::filesystem::path root(dir);
+  if (!std::filesystem::is_directory(root)) {
+    std::cerr << "cartograph: not a directory: '" << dir << "'\n";
+    return 1;
+  }
+
+  const cartograph::Graph graph = cartograph::index_directory(root);
+  report_diagnostics(graph);
+
+  // Seed the reverse traversal with every node carrying the name — its
+  // definitions — and collect the transitive callers. Sort by (file, line) so
+  // output is deterministic and matches the sibling query commands; the same
+  // caller reached by several paths is already emitted once by the graph walk.
+  const std::vector<cartograph::Caller> reached =
+      graph.transitive_callers(graph.nodes_named(name));
+
+  std::set<std::pair<std::string, std::uint32_t>> hits;
+  for (const cartograph::Caller& c : reached) {
+    const cartograph::Node& node = graph.node(c.node);
+    hits.emplace(node.file, node.line);
+  }
+
+  for (const auto& [file, line] : hits) {
+    std::cout << file << ':' << line << '\n';
+  }
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -218,6 +255,10 @@ int main(int argc, char** argv) {
   }
   if (command == "who-calls") {
     return cmd_who_calls(std::vector<std::string_view>(argv + 2, argv + argc));
+  }
+  if (command == "blast-radius") {
+    return cmd_blast_radius(
+        std::vector<std::string_view>(argv + 2, argv + argc));
   }
 
   std::cerr << "cartograph: unknown command '" << command << "'\n";

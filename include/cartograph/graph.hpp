@@ -41,6 +41,15 @@ struct Node {
   Linkage linkage;          // internal (static) vs external, for resolution
 };
 
+// A node reached by walking CALLS edges in reverse from a query target, paired
+// with its shortest distance in edges to that target: `depth` 1 is a direct
+// caller, 2 a caller's caller, and so on. The distance is what makes a
+// blast-radius result readable — the nearest callers are the first to break.
+struct Caller {
+  NodeId node;
+  std::uint32_t depth;
+};
+
 // A resolution that C's linkage rules cannot make unambiguous, surfaced rather
 // than silently guessed. Today the sole case is a call to a name with more than
 // one external-linkage definition — a real-C link error — which is linked to
@@ -74,6 +83,14 @@ class Graph {
   // NodeIds with a CALLS edge into `id` — its callers — in insertion order;
   // empty if none.
   const std::vector<NodeId>& callers_of(NodeId id) const;
+
+  // Reverse transitive closure over CALLS from every node in `seeds`: all direct
+  // and indirect callers — the blast radius of changing those nodes. The walk is
+  // breadth-first, so each returned `Caller.depth` is its shortest hop count from
+  // a seed. A visited set makes recursion and mutual-recursion cycles terminate,
+  // and the seeds themselves — the entity being changed, not something it affects
+  // — are never in the result even when a cycle calls back into one.
+  std::vector<Caller> transitive_callers(const std::vector<NodeId>& seeds) const;
 
   // Record a DECLARES link: the declaration `decl` (a FunctionDecl) declares the
   // definition `def` (a Function). A declaration has at most one definition in

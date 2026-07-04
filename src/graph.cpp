@@ -1,5 +1,6 @@
 #include "cartograph/graph.hpp"
 
+#include <unordered_set>
 #include <utility>
 
 namespace cartograph {
@@ -25,6 +26,29 @@ const std::vector<NodeId>& Graph::callers_of(NodeId id) const {
   static const std::vector<NodeId> kNone;
   const auto it = callers_by_callee_.find(id);
   return it == callers_by_callee_.end() ? kNone : it->second;
+}
+
+std::vector<Caller> Graph::transitive_callers(
+    const std::vector<NodeId>& seeds) const {
+  // `visited` is seeded with the targets so a cycle back into one is dropped and
+  // no node is emitted twice; a node's first visit is via a shortest path, so
+  // the depth we record with it is minimal (breadth-first frontier expansion).
+  std::unordered_set<NodeId> visited(seeds.begin(), seeds.end());
+  std::vector<NodeId> frontier(seeds.begin(), seeds.end());
+  std::vector<Caller> result;
+  for (std::uint32_t depth = 1; !frontier.empty(); ++depth) {
+    std::vector<NodeId> next;
+    for (const NodeId node : frontier) {
+      for (const NodeId caller : callers_of(node)) {
+        if (visited.insert(caller).second) {
+          result.push_back(Caller{caller, depth});
+          next.push_back(caller);
+        }
+      }
+    }
+    frontier = std::move(next);
+  }
+  return result;
 }
 
 void Graph::link_declaration(NodeId decl, NodeId def) {
