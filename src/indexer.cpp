@@ -46,6 +46,10 @@ Graph index_directory(const std::filesystem::path& dir) {
   };
   std::vector<PendingCall> pending;
 
+  // FunctionDecl nodes to link once every definition is known, for the same
+  // reason: a prototype's defining function may live in a file indexed later.
+  std::vector<NodeId> pending_decls;
+
   // Iterate the directory non-recursively using the error-code overloads so a
   // vanished or unreadable entry stops the walk cleanly rather than throwing.
   // Recursive crawling arrives in issue 0009.
@@ -78,6 +82,16 @@ Graph index_directory(const std::filesystem::path& dir) {
       if (caller == local_defs.end()) continue;  // enclosing def not indexed
       pending.push_back({caller->second, std::move(call.callee), call.line});
     }
+
+    // Header prototypes become FunctionDecl nodes, distinct from definitions.
+    // Their linkage field is unused (prototypes carry no storage of their own);
+    // External is the neutral default and keeps them out of static shadowing.
+    for (DeclarationFact& decl : extract_declarations(tree, source)) {
+      const NodeId id = graph.add_node(Node{NodeKind::FunctionDecl, decl.name,
+                                            path.string(), decl.line,
+                                            Linkage::External});
+      pending_decls.push_back(id);
+    }
   }
 
   // Second pass — linkage-aware resolution (ADR-0005). For each call we apply
@@ -95,6 +109,7 @@ Graph index_directory(const std::filesystem::path& dir) {
     bool bound_local = false;
     for (const NodeId id : candidates) {
       const Node& def = graph.node(id);
+      if (def.kind != NodeKind::Function) continue;  // a call binds to a body
       if (def.linkage == Linkage::Internal && def.file == caller_file) {
         graph.add_edge(call.caller, id);
         bound_local = true;
@@ -105,7 +120,10 @@ Graph index_directory(const std::filesystem::path& dir) {
 
     std::vector<NodeId> externals;
     for (const NodeId id : candidates) {
-      if (graph.node(id).linkage == Linkage::External) externals.push_back(id);
+      const Node& def = graph.node(id);
+      if (def.kind == NodeKind::Function && def.linkage == Linkage::External) {
+        externals.push_back(id);
+      }
     }
     for (const NodeId id : externals) graph.add_edge(call.caller, id);
 
@@ -115,6 +133,31 @@ Graph index_directory(const std::filesystem::path& dir) {
     if (externals.size() > 1) {
       graph.add_diagnostic(
           Diagnostic{call.callee, caller_file, call.line, std::move(externals)});
+    }
+  }
+
+  // Third pass — link each declaration to the function it declares. A prototype
+  // declares an external-linkage function, so we bind it to the unique external
+  // definition of its name; failing that, to the sole definition of any linkage.
+  // Zero definitions (a header-only prototype) or an ambiguous set leaves the
+  // declaration unlinked rather than guessed at.
+  for (const NodeId decl : pending_decls) {
+    const std::vector<NodeId>& candidates =
+        graph.nodes_named(graph.node(decl).name);
+
+    std::vector<NodeId> externals;
+    std::vector<NodeId> definitions;
+    for (const NodeId id : candidates) {
+      const Node& def = graph.node(id);
+      if (def.kind != NodeKind::Function) continue;
+      definitions.push_back(id);
+      if (def.linkage == Linkage::External) externals.push_back(id);
+    }
+
+    if (externals.size() == 1) {
+      graph.link_declaration(decl, externals.front());
+    } else if (externals.empty() && definitions.size() == 1) {
+      graph.link_declaration(decl, definitions.front());
     }
   }
   return graph;

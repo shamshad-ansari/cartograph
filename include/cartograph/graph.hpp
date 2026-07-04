@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -13,10 +14,12 @@ namespace cartograph {
 // later slices and position-independent, a prerequisite for mmap persistence.
 using NodeId = std::uint32_t;
 
-// The kind of program entity a node represents. This slice records function
-// definitions only; later slices add more kinds.
+// The kind of program entity a node represents. A `Function` is a definition
+// (a body); a `FunctionDecl` is a prototype — a declaration without a body,
+// typically in a header — linked to its defining `Function` when one is indexed.
 enum class NodeKind {
   Function,
+  FunctionDecl,
 };
 
 // A definition's C linkage — the property that decides which calls can see it.
@@ -72,6 +75,15 @@ class Graph {
   // empty if none.
   const std::vector<NodeId>& callers_of(NodeId id) const;
 
+  // Record a DECLARES link: the declaration `decl` (a FunctionDecl) declares the
+  // definition `def` (a Function). A declaration has at most one definition in
+  // the indexed set, so a later call replaces any earlier one.
+  void link_declaration(NodeId decl, NodeId def);
+
+  // The definition that declaration `decl` was linked to, or nullopt when no
+  // matching definition was found in the indexed set.
+  std::optional<NodeId> definition_of(NodeId decl) const;
+
   // Record an ambiguous/erroneous resolution surfaced during indexing.
   void add_diagnostic(Diagnostic diagnostic);
 
@@ -82,6 +94,7 @@ class Graph {
   std::vector<Node> nodes_;
   std::unordered_map<std::string, std::vector<NodeId>> by_name_;
   std::unordered_map<NodeId, std::vector<NodeId>> callers_by_callee_;
+  std::unordered_map<NodeId, NodeId> definition_by_decl_;
   std::vector<Diagnostic> diagnostics_;
 };
 

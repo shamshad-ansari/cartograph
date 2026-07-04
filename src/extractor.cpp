@@ -98,19 +98,14 @@ TSNode enclosing_function(TSNode node) {
   return TSNode{};
 }
 
-}  // namespace
-
-std::vector<DefinitionFact> extract_definitions(const Tree& tree,
-                                                std::string_view source) {
-  std::vector<DefinitionFact> facts;
-  if (tree.empty()) return facts;
-
-  // The query does the structural matching; we only walk its results. Each
-  // match corresponds to one function definition, and we pull the identifier
-  // out of its "name" capture. Captures are matched by name (rather than a
-  // fixed index) so the extractor stays correct as patterns are added or
-  // reordered in the .scm file.
-  Query query(kCDefinitionsQuery);
+// Run `query_src` against `tree` and collect every node captured as "name", in
+// match order. Both definition and declaration extraction reduce to "find the
+// name identifiers this pattern selects"; the query does the structural work.
+// Captures are matched by name (rather than a fixed index) so the walk stays
+// correct as patterns are added or reordered in the .scm file.
+std::vector<TSNode> name_captures(const Tree& tree, std::string_view query_src) {
+  std::vector<TSNode> nodes;
+  Query query(query_src);
   Cursor cursor;
   ts_query_cursor_exec(cursor.ptr, query.ptr, ts_tree_root_node(tree.raw()));
 
@@ -123,21 +118,41 @@ std::vector<DefinitionFact> extract_definitions(const Tree& tree,
       const char* capture_name =
           ts_query_capture_name_for_id(query.ptr, capture.index, &name_len);
       if (std::string_view(capture_name, name_len) != "name") continue;
-
-      // Read the identifier's text straight out of the source buffer via the
-      // captured node's byte range, and report its 1-based start line.
-      const TSNode node = capture.node;
-      const std::uint32_t start = ts_node_start_byte(node);
-      const std::uint32_t end = ts_node_end_byte(node);
-
-      DefinitionFact fact;
-      fact.name = std::string(source.substr(start, end - start));
-      fact.line = ts_node_start_point(node).row + 1;
-      // The function_definition owns the storage class; climb from the name.
-      const TSNode fn = enclosing_function(node);
-      fact.is_static = !ts_node_is_null(fn) && has_static_storage(fn, source);
-      facts.push_back(std::move(fact));
+      nodes.push_back(capture.node);
     }
+  }
+  return nodes;
+}
+
+}  // namespace
+
+std::vector<DefinitionFact> extract_definitions(const Tree& tree,
+                                                std::string_view source) {
+  std::vector<DefinitionFact> facts;
+  if (tree.empty()) return facts;
+
+  for (const TSNode node : name_captures(tree, kCDefinitionsQuery)) {
+    DefinitionFact fact;
+    fact.name = node_text(node, source);
+    fact.line = ts_node_start_point(node).row + 1;
+    // The function_definition owns the storage class; climb from the name.
+    const TSNode fn = enclosing_function(node);
+    fact.is_static = !ts_node_is_null(fn) && has_static_storage(fn, source);
+    facts.push_back(std::move(fact));
+  }
+  return facts;
+}
+
+std::vector<DeclarationFact> extract_declarations(const Tree& tree,
+                                                  std::string_view source) {
+  std::vector<DeclarationFact> facts;
+  if (tree.empty()) return facts;
+
+  for (const TSNode node : name_captures(tree, kCDeclarationsQuery)) {
+    DeclarationFact fact;
+    fact.name = node_text(node, source);
+    fact.line = ts_node_start_point(node).row + 1;
+    facts.push_back(std::move(fact));
   }
   return facts;
 }

@@ -22,6 +22,15 @@ struct DefinitionFact {
   bool is_static;      // has a `static` storage class -> internal linkage
 };
 
+// A function prototype: a declaration without a body, distinct from a
+// DefinitionFact. Linkage is not tracked — a prototype declares an
+// external-linkage function unless a matching static definition says otherwise,
+// which the indexer resolves when it links the declaration to its definition.
+struct DeclarationFact {
+  std::string name;
+  std::uint32_t line;  // 1-based line of the prototype's name
+};
+
 // A call site: the enclosing function's name (`caller`) and the still-
 // unresolved name it calls (`callee`). Resolution to definition node(s) happens
 // later, in the indexer, once every file's definitions are known.
@@ -36,6 +45,13 @@ struct CallFact {
 // captured identifier text. Returns an empty vector for an empty tree.
 std::vector<DefinitionFact> extract_definitions(const Tree& tree,
                                                 std::string_view source);
+
+// Extract function-prototype facts from an already-parsed C source `tree` — the
+// `int foo(int);` declarations that headers use, as opposed to definitions with
+// a body. `source` must be the buffer the tree was parsed from. Returns an empty
+// vector for an empty tree.
+std::vector<DeclarationFact> extract_declarations(const Tree& tree,
+                                                  std::string_view source);
 
 // Extract call-site facts from an already-parsed C source `tree`. Each call is
 // attributed to the function_definition that encloses it; calls not inside a

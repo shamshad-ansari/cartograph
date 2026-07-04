@@ -22,6 +22,8 @@ int usage(std::ostream& out) {
          "syntax tree\n"
          "  find-definition <name> --dir <path>  print file:line of each "
          "definition of <name>\n"
+         "  find-declarations <name> --dir <path>  print file:line of each "
+         "declaration of <name>\n"
          "  who-calls <name> --dir <path>        print file:line of each "
          "function that calls <name>\n";
   return 2;
@@ -114,10 +116,43 @@ int cmd_find_definition(const std::vector<std::string_view>& args) {
   const cartograph::Graph graph = cartograph::index_directory(root);
 
   // Collect and sort by (file, line) so output is deterministic regardless of
-  // directory iteration order.
+  // directory iteration order. Only definitions (a body) count here; prototypes
+  // are FunctionDecl nodes answered by find-declarations.
   std::vector<std::pair<std::string, std::uint32_t>> hits;
   for (const cartograph::NodeId id : graph.nodes_named(name)) {
     const cartograph::Node& node = graph.node(id);
+    if (node.kind != cartograph::NodeKind::Function) continue;
+    hits.emplace_back(node.file, node.line);
+  }
+  std::sort(hits.begin(), hits.end());
+
+  for (const auto& [file, line] : hits) {
+    std::cout << file << ':' << line << '\n';
+  }
+  return 0;
+}
+
+int cmd_find_declarations(const std::vector<std::string_view>& args) {
+  std::string_view name;
+  std::string_view dir;
+  if (!parse_name_and_dir(args, "find-declarations", name, dir)) {
+    return usage(std::cerr);
+  }
+
+  const std::filesystem::path root(dir);
+  if (!std::filesystem::is_directory(root)) {
+    std::cerr << "cartograph: not a directory: '" << dir << "'\n";
+    return 1;
+  }
+
+  const cartograph::Graph graph = cartograph::index_directory(root);
+
+  // Only prototypes (FunctionDecl) — the answer to "where is this declared?".
+  // Sorted by (file, line) for output independent of iteration order.
+  std::vector<std::pair<std::string, std::uint32_t>> hits;
+  for (const cartograph::NodeId id : graph.nodes_named(name)) {
+    const cartograph::Node& node = graph.node(id);
+    if (node.kind != cartograph::NodeKind::FunctionDecl) continue;
     hits.emplace_back(node.file, node.line);
   }
   std::sort(hits.begin(), hits.end());
@@ -175,6 +210,10 @@ int main(int argc, char** argv) {
   }
   if (command == "find-definition") {
     return cmd_find_definition(
+        std::vector<std::string_view>(argv + 2, argv + argc));
+  }
+  if (command == "find-declarations") {
+    return cmd_find_declarations(
         std::vector<std::string_view>(argv + 2, argv + argc));
   }
   if (command == "who-calls") {
