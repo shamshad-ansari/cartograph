@@ -27,7 +27,9 @@ int usage(std::ostream& out) {
          "  who-calls <name> --dir <path>        print file:line of each "
          "function that calls <name>\n"
          "  blast-radius <name> --dir <path>     print file:line of every "
-         "direct and indirect caller of <name>\n";
+         "direct and indirect caller of <name>\n"
+         "  include-graph <file> --dir <path>    print the files <file> "
+         "includes and the files that include it\n";
   return 2;
 }
 
@@ -232,6 +234,61 @@ int cmd_blast_radius(const std::vector<std::string_view>& args) {
   return 0;
 }
 
+int cmd_include_graph(const std::vector<std::string_view>& args) {
+  std::string_view name;
+  std::string_view dir;
+  if (!parse_name_and_dir(args, "include-graph", name, dir)) {
+    return usage(std::cerr);
+  }
+
+  const std::filesystem::path root(dir);
+  if (!std::filesystem::is_directory(root)) {
+    std::cerr << "cartograph: not a directory: '" << dir << "'\n";
+    return 1;
+  }
+
+  const cartograph::Graph graph = cartograph::index_directory(root);
+
+  // A file is addressed by its basename; there is one File node per indexed file,
+  // so at most one match in this non-recursive slice.
+  std::vector<cartograph::NodeId> targets;
+  for (const cartograph::NodeId id : graph.nodes_named(name)) {
+    if (graph.node(id).kind == cartograph::NodeKind::File) targets.push_back(id);
+  }
+  if (targets.empty()) {
+    std::cerr << "cartograph: no indexed file named '" << name << "'\n";
+    return 1;
+  }
+
+  // Gather both directions and any unresolved (system/external) includes. Sets
+  // sort and dedupe so output is deterministic and a file included twice lists
+  // once.
+  std::set<std::string> includes;
+  std::set<std::string> included_by;
+  std::set<std::pair<std::string, bool>> unresolved;  // (target, is_system)
+  for (const cartograph::NodeId target : targets) {
+    for (const cartograph::NodeId id : graph.includes_of(target)) {
+      includes.insert(graph.node(id).file);
+    }
+    for (const cartograph::NodeId id : graph.included_by(target)) {
+      included_by.insert(graph.node(id).file);
+    }
+    for (const cartograph::UnresolvedInclude& u : graph.unresolved_includes()) {
+      if (u.includer == target) unresolved.emplace(u.target, u.is_system);
+    }
+  }
+
+  std::cout << "includes:\n";
+  for (const std::string& path : includes) std::cout << "  " << path << '\n';
+  for (const auto& [target, is_system] : unresolved) {
+    std::cout << "  " << target << (is_system ? "  (unresolved: system)\n"
+                                              : "  (unresolved: external)\n");
+  }
+  std::cout << "included by:\n";
+  for (const std::string& path : included_by) std::cout << "  " << path << '\n';
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -258,6 +315,10 @@ int main(int argc, char** argv) {
   }
   if (command == "blast-radius") {
     return cmd_blast_radius(
+        std::vector<std::string_view>(argv + 2, argv + argc));
+  }
+  if (command == "include-graph") {
+    return cmd_include_graph(
         std::vector<std::string_view>(argv + 2, argv + argc));
   }
 

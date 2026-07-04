@@ -19,4 +19,7 @@ inline constexpr std::string_view kCDeclarationsQuery =
 inline constexpr std::string_view kCCallsQuery =
     R"scm(@CARTOGRAPH_C_CALLS_QUERY@)scm";
 
+inline constexpr std::string_view kCIncludesQuery =
+    R"scm(@CARTOGRAPH_C_INCLUDES_QUERY@)scm";
+
 }  // namespace cartograph

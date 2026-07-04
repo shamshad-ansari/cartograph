@@ -17,9 +17,11 @@ using NodeId = std::uint32_t;
 // The kind of program entity a node represents. A `Function` is a definition
 // (a body); a `FunctionDecl` is a prototype — a declaration without a body,
 // typically in a header — linked to its defining `Function` when one is indexed.
+// A `File` is an indexed source or header file, the endpoint of INCLUDES edges.
 enum class NodeKind {
   Function,
   FunctionDecl,
+  File,
 };
 
 // A definition's C linkage — the property that decides which calls can see it.
@@ -48,6 +50,18 @@ struct Node {
 struct Caller {
   NodeId node;
   std::uint32_t depth;
+};
+
+// An `#include` that did not resolve to a File node in the indexed set — a
+// system header (`<stdio.h>`), or a local include whose target lies outside the
+// indexed directory. Recorded for completeness so the include graph is honest
+// about a file's external dependencies; it forms no INCLUDES edge, since there
+// is no indexed file to link to.
+struct UnresolvedInclude {
+  NodeId includer;      // the File node carrying the directive
+  std::string target;   // the path as written (delimiters stripped)
+  bool is_system;       // `<...>` form vs an unresolved local `"..."`
+  std::uint32_t line;   // 1-based line of the #include
 };
 
 // A resolution that C's linkage rules cannot make unambiguous, surfaced rather
@@ -92,6 +106,27 @@ class Graph {
   // — are never in the result even when a cycle calls back into one.
   std::vector<Caller> transitive_callers(const std::vector<NodeId>& seeds) const;
 
+  // Record an INCLUDES edge: file `includer` includes file `includee` (both File
+  // nodes). Indexed for traversal in either direction — a file's includees and
+  // its includers.
+  void add_include(NodeId includer, NodeId includee);
+
+  // File nodes that `id` directly includes — its includees — in insertion order;
+  // empty if none.
+  const std::vector<NodeId>& includes_of(NodeId id) const;
+
+  // File nodes that directly include `id` — its includers — in insertion order;
+  // empty if none.
+  const std::vector<NodeId>& included_by(NodeId id) const;
+
+  // Record an `#include` that resolved to no indexed file (system or external).
+  void add_unresolved_include(UnresolvedInclude include);
+
+  // Every unresolved include collected while building the graph, in source order.
+  const std::vector<UnresolvedInclude>& unresolved_includes() const {
+    return unresolved_includes_;
+  }
+
   // Record a DECLARES link: the declaration `decl` (a FunctionDecl) declares the
   // definition `def` (a Function). A declaration has at most one definition in
   // the indexed set, so a later call replaces any earlier one.
@@ -111,7 +146,10 @@ class Graph {
   std::vector<Node> nodes_;
   std::unordered_map<std::string, std::vector<NodeId>> by_name_;
   std::unordered_map<NodeId, std::vector<NodeId>> callers_by_callee_;
+  std::unordered_map<NodeId, std::vector<NodeId>> includees_by_file_;
+  std::unordered_map<NodeId, std::vector<NodeId>> includers_by_file_;
   std::unordered_map<NodeId, NodeId> definition_by_decl_;
+  std::vector<UnresolvedInclude> unresolved_includes_;
   std::vector<Diagnostic> diagnostics_;
 };
 

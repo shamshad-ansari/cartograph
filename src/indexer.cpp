@@ -50,6 +50,19 @@ Graph index_directory(const std::filesystem::path& dir) {
   // reason: a prototype's defining function may live in a file indexed later.
   std::vector<NodeId> pending_decls;
 
+  // Include directives, resolved in a second pass: an included file may be
+  // indexed after the file that includes it, so we defer until every File node
+  // exists. `file_by_path` maps each indexed file's normalized path to its File
+  // node, the target of resolution.
+  struct PendingInclude {
+    NodeId includer;
+    std::string target;
+    bool is_system;
+    std::uint32_t line;
+  };
+  std::vector<PendingInclude> pending_includes;
+  std::unordered_map<std::string, NodeId> file_by_path;
+
   // Iterate the directory non-recursively using the error-code overloads so a
   // vanished or unreadable entry stops the walk cleanly rather than throwing.
   // Recursive crawling arrives in issue 0009.
@@ -64,6 +77,20 @@ Graph index_directory(const std::filesystem::path& dir) {
     if (!read_file(path, source)) continue;
 
     const Tree tree = parser.parse(source);
+
+    // A File node per indexed file — an INCLUDES endpoint — keyed by normalized
+    // path so an `#include` can resolve to it. The name is the basename, which
+    // is how include-graph looks a file up; the full path lives in `file`.
+    const NodeId file_id = graph.add_node(Node{NodeKind::File,
+                                               path.filename().string(),
+                                               path.string(), 0,
+                                               Linkage::External});
+    file_by_path.emplace(path.lexically_normal().string(), file_id);
+
+    for (IncludeFact& inc : extract_includes(tree, source)) {
+      pending_includes.push_back(
+          {file_id, std::move(inc.target), inc.is_system, inc.line});
+    }
 
     // Definitions first, so a call can be attributed to the node of its
     // enclosing function. Function names are unique within a C translation
@@ -159,6 +186,26 @@ Graph index_directory(const std::filesystem::path& dir) {
     } else if (externals.empty() && definitions.size() == 1) {
       graph.link_declaration(decl, definitions.front());
     }
+  }
+
+  // Fourth pass — resolve includes. A local `"..."` include is resolved like a C
+  // compiler would: relative to the directory of the including file. A hit in
+  // the indexed set becomes an INCLUDES edge; a miss — a system `<...>` header
+  // or a target outside the indexed set — is recorded as unresolved, not linked,
+  // and never errors (a project's external headers are simply not in the graph).
+  for (const PendingInclude& inc : pending_includes) {
+    if (!inc.is_system) {
+      const std::filesystem::path includer_path = graph.node(inc.includer).file;
+      const std::string candidate =
+          (includer_path.parent_path() / inc.target).lexically_normal().string();
+      const auto it = file_by_path.find(candidate);
+      if (it != file_by_path.end()) {
+        graph.add_include(inc.includer, it->second);
+        continue;
+      }
+    }
+    graph.add_unresolved_include(
+        UnresolvedInclude{inc.includer, inc.target, inc.is_system, inc.line});
   }
   return graph;
 }

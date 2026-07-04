@@ -40,6 +40,15 @@ struct CallFact {
   std::uint32_t line;  // 1-based line of the call site
 };
 
+// An `#include` directive: the path token as written (delimiters stripped) and
+// whether it used the angle-bracket system form. Resolution of `target` to an
+// indexed File node happens later, in the indexer, once every file is known.
+struct IncludeFact {
+  std::string target;  // path as written, without quotes/brackets: util.h, stdio.h
+  bool is_system;      // `<...>` form -> a system/external header, not resolved
+  std::uint32_t line;  // 1-based line of the #include directive
+};
+
 // Extract function-definition facts from an already-parsed C source `tree`.
 // `source` must be the exact buffer the tree was parsed from; it is used to read
 // captured identifier text. Returns an empty vector for an empty tree.
@@ -58,5 +67,12 @@ std::vector<DeclarationFact> extract_declarations(const Tree& tree,
 // recognized function definition are dropped. `source` must be the buffer the
 // tree was parsed from. Returns an empty vector for an empty tree.
 std::vector<CallFact> extract_calls(const Tree& tree, std::string_view source);
+
+// Extract `#include` directive facts from an already-parsed C source `tree`, in
+// source order. Both the local `"..."` and system `<...>` forms are returned;
+// the `is_system` flag distinguishes them. `source` must be the buffer the tree
+// was parsed from. Returns an empty vector for an empty tree.
+std::vector<IncludeFact> extract_includes(const Tree& tree,
+                                          std::string_view source);
 
 }  // namespace cartograph

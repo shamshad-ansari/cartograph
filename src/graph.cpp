@@ -51,6 +51,27 @@ std::vector<Caller> Graph::transitive_callers(
   return result;
 }
 
+void Graph::add_include(NodeId includer, NodeId includee) {
+  includees_by_file_[includer].push_back(includee);
+  includers_by_file_[includee].push_back(includer);
+}
+
+const std::vector<NodeId>& Graph::includes_of(NodeId id) const {
+  static const std::vector<NodeId> kNone;
+  const auto it = includees_by_file_.find(id);
+  return it == includees_by_file_.end() ? kNone : it->second;
+}
+
+const std::vector<NodeId>& Graph::included_by(NodeId id) const {
+  static const std::vector<NodeId> kNone;
+  const auto it = includers_by_file_.find(id);
+  return it == includers_by_file_.end() ? kNone : it->second;
+}
+
+void Graph::add_unresolved_include(UnresolvedInclude include) {
+  unresolved_includes_.push_back(std::move(include));
+}
+
 void Graph::link_declaration(NodeId decl, NodeId def) {
   definition_by_decl_[decl] = def;
 }

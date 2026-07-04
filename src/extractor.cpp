@@ -98,12 +98,14 @@ TSNode enclosing_function(TSNode node) {
   return TSNode{};
 }
 
-// Run `query_src` against `tree` and collect every node captured as "name", in
-// match order. Both definition and declaration extraction reduce to "find the
-// name identifiers this pattern selects"; the query does the structural work.
-// Captures are matched by name (rather than a fixed index) so the walk stays
-// correct as patterns are added or reordered in the .scm file.
-std::vector<TSNode> name_captures(const Tree& tree, std::string_view query_src) {
+// Run `query_src` against `tree` and collect every node bound to the capture
+// named `capture` (e.g. "name", "path"), in match order. Extraction of the
+// single-node fact kinds reduces to "find the nodes this pattern selects under
+// this capture"; the query does the structural work. Captures are matched by
+// name (rather than a fixed index) so the walk stays correct as patterns are
+// added or reordered in the .scm file.
+std::vector<TSNode> capture_nodes(const Tree& tree, std::string_view query_src,
+                                  std::string_view capture) {
   std::vector<TSNode> nodes;
   Query query(query_src);
   Cursor cursor;
@@ -112,13 +114,13 @@ std::vector<TSNode> name_captures(const Tree& tree, std::string_view query_src) 
   TSQueryMatch match;
   while (ts_query_cursor_next_match(cursor.ptr, &match)) {
     for (std::uint16_t i = 0; i < match.capture_count; ++i) {
-      const TSQueryCapture capture = match.captures[i];
+      const TSQueryCapture cap = match.captures[i];
 
       std::uint32_t name_len = 0;
       const char* capture_name =
-          ts_query_capture_name_for_id(query.ptr, capture.index, &name_len);
-      if (std::string_view(capture_name, name_len) != "name") continue;
-      nodes.push_back(capture.node);
+          ts_query_capture_name_for_id(query.ptr, cap.index, &name_len);
+      if (std::string_view(capture_name, name_len) != capture) continue;
+      nodes.push_back(cap.node);
     }
   }
   return nodes;
@@ -131,7 +133,7 @@ std::vector<DefinitionFact> extract_definitions(const Tree& tree,
   std::vector<DefinitionFact> facts;
   if (tree.empty()) return facts;
 
-  for (const TSNode node : name_captures(tree, kCDefinitionsQuery)) {
+  for (const TSNode node : capture_nodes(tree, kCDefinitionsQuery, "name")) {
     DefinitionFact fact;
     fact.name = node_text(node, source);
     fact.line = ts_node_start_point(node).row + 1;
@@ -148,7 +150,7 @@ std::vector<DeclarationFact> extract_declarations(const Tree& tree,
   std::vector<DeclarationFact> facts;
   if (tree.empty()) return facts;
 
-  for (const TSNode node : name_captures(tree, kCDeclarationsQuery)) {
+  for (const TSNode node : capture_nodes(tree, kCDeclarationsQuery, "name")) {
     DeclarationFact fact;
     fact.name = node_text(node, source);
     fact.line = ts_node_start_point(node).row + 1;
@@ -190,6 +192,29 @@ std::vector<CallFact> extract_calls(const Tree& tree, std::string_view source) {
       fact.line = ts_node_start_point(capture.node).row + 1;
       facts.push_back(std::move(fact));
     }
+  }
+  return facts;
+}
+
+std::vector<IncludeFact> extract_includes(const Tree& tree,
+                                          std::string_view source) {
+  std::vector<IncludeFact> facts;
+  if (tree.empty()) return facts;
+
+  for (const TSNode node : capture_nodes(tree, kCIncludesQuery, "path")) {
+    // The captured token carries its delimiters — `"util.h"` or `<stdio.h>`. A
+    // system_lib_string is the `<...>` form; both delimiter styles are a single
+    // char on each side, so stripping the ends recovers the bare path.
+    const bool is_system =
+        std::string_view(ts_node_type(node)) == "system_lib_string";
+    std::string text = node_text(node, source);
+    if (text.size() >= 2) text = text.substr(1, text.size() - 2);
+
+    IncludeFact fact;
+    fact.target = std::move(text);
+    fact.is_system = is_system;
+    fact.line = ts_node_start_point(node).row + 1;
+    facts.push_back(std::move(fact));
   }
   return facts;
 }
