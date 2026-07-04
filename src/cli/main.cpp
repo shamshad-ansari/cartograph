@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <charconv>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -9,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "cartograph/bench.hpp"
 #include "cartograph/graph.hpp"
 #include "cartograph/indexer.hpp"
 #include "cartograph/parser.hpp"
@@ -33,7 +35,10 @@ int usage(std::ostream& out) {
          "  who-uses-type <name> --dir <path>    print file:line of each "
          "function that references type <name>\n"
          "  index <path>                         recursively index <path> and "
-         "print file/node/edge counts\n";
+         "print file/node/edge counts\n"
+         "  bench <path> [--json] [--runs N] [--sample N]\n"
+         "                                       measure index throughput, peak "
+         "RSS, and query-latency percentiles over <path>\n";
   return 2;
 }
 
@@ -359,6 +364,65 @@ int cmd_who_uses_type(const std::vector<std::string_view>& args) {
   return 0;
 }
 
+int cmd_bench(const std::vector<std::string_view>& args) {
+  std::string_view path;
+  bool as_json = false;
+  cartograph::BenchmarkOptions opts;
+
+  // Parse `<path> [--json] [--runs N] [--sample N]`. --runs and --sample take an
+  // integer; --json toggles machine-readable output. The first bare argument is
+  // the target directory.
+  for (std::size_t i = 0; i < args.size(); ++i) {
+    if (args[i] == "--json") {
+      as_json = true;
+    } else if (args[i] == "--runs" || args[i] == "--sample") {
+      const std::string_view flag = args[i];
+      if (++i >= args.size()) {
+        std::cerr << "cartograph: '" << flag << "' expects a number\n";
+        return usage(std::cerr);
+      }
+      int value = 0;
+      const auto [ptr, ec] = std::from_chars(
+          args[i].data(), args[i].data() + args[i].size(), value);
+      if (ec != std::errc{} || ptr != args[i].data() + args[i].size() ||
+          value < 0) {
+        std::cerr << "cartograph: '" << flag << "' expects a non-negative number, got '"
+                  << args[i] << "'\n";
+        return 1;
+      }
+      if (flag == "--runs") {
+        opts.index_runs = value;
+      } else {
+        opts.query_samples = static_cast<std::size_t>(value);
+      }
+    } else if (path.empty()) {
+      path = args[i];
+    } else {
+      std::cerr << "cartograph: unexpected argument '" << args[i] << "'\n";
+      return usage(std::cerr);
+    }
+  }
+
+  if (path.empty()) {
+    std::cerr << "cartograph: 'bench' expects a directory path\n";
+    return usage(std::cerr);
+  }
+  const std::filesystem::path root(path);
+  if (!std::filesystem::is_directory(root)) {
+    std::cerr << "cartograph: not a directory: '" << path << "'\n";
+    return 1;
+  }
+
+  const cartograph::BenchmarkReport report =
+      cartograph::run_benchmark(root, opts);
+  if (as_json) {
+    cartograph::write_json(report, std::cout);
+  } else {
+    cartograph::write_summary(report, std::cout);
+  }
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -397,6 +461,9 @@ int main(int argc, char** argv) {
   }
   if (command == "index") {
     return cmd_index(std::vector<std::string_view>(argv + 2, argv + argc));
+  }
+  if (command == "bench") {
+    return cmd_bench(std::vector<std::string_view>(argv + 2, argv + argc));
   }
 
   std::cerr << "cartograph: unknown command '" << command << "'\n";

@@ -52,7 +52,8 @@ add_library(cartograph_core
   src/parser.cpp
   src/graph.cpp
   src/extractor.cpp
-  src/indexer.cpp)
+  src/indexer.cpp
+  src/bench.cpp)
 add_library(cartograph::core ALIAS cartograph_core)
 target_include_directories(cartograph_core
   PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
