@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -130,12 +132,21 @@ class Graph {
 
   // A view of node `id`, materialized from the per-field arrays and arena. Cheap
   // to return by value; its string_views point into the arena, not the view.
+  // Reads the mapped columns in place after a warm load, the owning vectors
+  // otherwise (ADR-0008) — the branch is on a flag fixed for the graph's life.
   NodeView node(NodeId id) const {
+    if (mapped_) {
+      return NodeView{mapped_kind_[id], strings_.view(mapped_name_[id]),
+                      strings_.view(mapped_file_[id]), mapped_line_[id],
+                      mapped_linkage_[id], mapped_hash_[id]};
+    }
     return NodeView{node_kind_[id], strings_.view(node_name_[id]),
                     strings_.view(node_file_[id]), node_line_[id],
                     node_linkage_[id], node_hash_[id]};
   }
-  std::size_t size() const noexcept { return node_kind_.size(); }
+  std::size_t size() const noexcept {
+    return mapped_ ? mapped_kind_.size() : node_kind_.size();
+  }
 
   // Total number of edges of every kind — CALLS, INCLUDES, USES_TYPE, and
   // DECLARES — for the index summary. INCLUDES is counted once per edge, not
@@ -212,6 +223,42 @@ class Graph {
   // Every skipped file collected while crawling, in discovery order.
   const std::vector<SkippedFile>& skipped_files() const { return skipped_files_; }
 
+  // ── persistence seam (ADR-0008, issue 0014) ──────────────────────────────
+  // The raw struct-of-arrays columns and arena bytes, exactly as a save writes
+  // them out. Each returns a span over the live storage in either mode.
+  std::span<const NodeKind> raw_kinds() const {
+    return mapped_ ? mapped_kind_ : std::span<const NodeKind>(node_kind_);
+  }
+  std::span<const StringRef> raw_names() const {
+    return mapped_ ? mapped_name_ : std::span<const StringRef>(node_name_);
+  }
+  std::span<const StringRef> raw_files() const {
+    return mapped_ ? mapped_file_ : std::span<const StringRef>(node_file_);
+  }
+  std::span<const std::uint32_t> raw_lines() const {
+    return mapped_ ? mapped_line_ : std::span<const std::uint32_t>(node_line_);
+  }
+  std::span<const Linkage> raw_linkages() const {
+    return mapped_ ? mapped_linkage_ : std::span<const Linkage>(node_linkage_);
+  }
+  std::span<const std::uint64_t> raw_hashes() const {
+    return mapped_ ? mapped_hash_ : std::span<const std::uint64_t>(node_hash_);
+  }
+  std::string_view arena_bytes() const { return strings_.bytes(); }
+
+  // Back this graph by an mmap'd index file: view its node columns and string
+  // arena directly in `owner`'s bytes — no per-node copy — and rebuild the
+  // name index from those nodes. `owner` keeps the mapping alive for the graph's
+  // lifetime. The caller replays the persisted edges through the normal add_*
+  // API afterward. Must be called on an empty graph, before any add_node.
+  void adopt_mapping(std::shared_ptr<void> owner, StringArena arena,
+                     std::span<const NodeKind> kinds,
+                     std::span<const StringRef> names,
+                     std::span<const StringRef> files,
+                     std::span<const std::uint32_t> lines,
+                     std::span<const Linkage> linkages,
+                     std::span<const std::uint64_t> hashes);
+
  private:
   // Struct-of-arrays node storage: one dense array per attribute, all indexed by
   // NodeId. Names and files are StringRefs (offset/length) into `strings_`.
@@ -231,6 +278,19 @@ class Graph {
   std::vector<UnresolvedInclude> unresolved_includes_;
   std::vector<Diagnostic> diagnostics_;
   std::vector<SkippedFile> skipped_files_;
+
+  // Warm-load (mapped) storage: when `mapped_` is set, the node columns are
+  // spans into an mmap'd file (owned by `mapping_`, kept alive for this graph)
+  // and `strings_` is a mapped arena over the same file, so node() reads them in
+  // place. The keyed indices above are still owned — rebuilt on load, not mapped.
+  bool mapped_ = false;
+  std::shared_ptr<void> mapping_;
+  std::span<const NodeKind> mapped_kind_;
+  std::span<const StringRef> mapped_name_;
+  std::span<const StringRef> mapped_file_;
+  std::span<const std::uint32_t> mapped_line_;
+  std::span<const Linkage> mapped_linkage_;
+  std::span<const std::uint64_t> mapped_hash_;
 };
 
 }  // namespace cartograph

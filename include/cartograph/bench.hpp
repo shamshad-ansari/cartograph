@@ -57,6 +57,17 @@ struct ThreadScalingPoint {
   double speedup = 0;   // baseline (1-thread) wall_ms / this wall_ms
 };
 
+// Cold-versus-warm startup (ADR-0008, issue 0014): the cost of a cold start that
+// parses the whole repository against a warm start that memory-maps the persisted
+// index instead. The warm path pays no parse cost, so `warm_load_ms` is the
+// payoff — "cold index seconds → warm load milliseconds".
+struct PersistenceBenchmark {
+  double cold_index_ms = 0;         // median full-parse index wall time
+  double warm_load_ms = 0;          // median mmap-load wall time
+  std::size_t index_file_bytes = 0; // size of the on-disk index
+  double speedup = 0;               // cold_index_ms / warm_load_ms
+};
+
 // A full benchmark report: index throughput plus per-query latency, ready to be
 // emitted as JSON (machine-readable, for tracking across changes) or as a
 // human-readable summary.
@@ -65,6 +76,7 @@ struct BenchmarkReport {
   IndexBenchmark index;
   std::vector<QueryLatency> queries;
   std::vector<ThreadScalingPoint> scaling;  // empty unless opts.thread_scaling
+  PersistenceBenchmark persistence;
 };
 
 // Run the benchmark over `dir`: index it `opts.index_runs` times to measure

@@ -1,6 +1,7 @@
 #include "cartograph/bench.hpp"
 
 #include <sys/resource.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <chrono>
@@ -13,6 +14,7 @@
 #include <vector>
 
 #include "cartograph/graph.hpp"
+#include "cartograph/graph_io.hpp"
 #include "cartograph/indexer.hpp"
 #include "cartograph/parallel.hpp"
 
@@ -225,6 +227,40 @@ BenchmarkReport run_benchmark(const std::filesystem::path& dir,
     }
   }
 
+  // Persistence: cold startup parses the whole repo (the median already measured
+  // above); warm startup memory-maps the saved index instead. Save once, then
+  // time `runs` mmap-loads and keep the median — the payoff ADR-0008 promises.
+  report.persistence.cold_index_ms = report.index.wall_ms;
+  const std::filesystem::path index_file =
+      std::filesystem::temp_directory_path() /
+      ("cartograph-bench-" + std::to_string(::getpid()) + ".idx");
+  std::error_code save_ec;
+  try {
+    save_graph(graph, index_file);
+    report.persistence.index_file_bytes =
+        static_cast<std::size_t>(std::filesystem::file_size(index_file, save_ec));
+
+    std::vector<double> load_ms;
+    load_ms.reserve(runs);
+    for (int r = 0; r < runs; ++r) {
+      const Clock::time_point t0 = Clock::now();
+      const Graph warm = load_graph(index_file);
+      const Clock::time_point t1 = Clock::now();
+      load_ms.push_back(
+          std::chrono::duration<double, std::milli>(t1 - t0).count());
+      (void)warm.size();  // keep the load from being elided
+    }
+    report.persistence.warm_load_ms = percentile(load_ms, 0.50);
+    if (report.persistence.warm_load_ms > 0) {
+      report.persistence.speedup =
+          report.persistence.cold_index_ms / report.persistence.warm_load_ms;
+    }
+  } catch (const std::exception&) {
+    // Leave the persistence numbers at zero if the scratch index cannot be
+    // written; the rest of the benchmark still stands.
+  }
+  std::filesystem::remove(index_file, save_ec);
+
   // Query latency over a deterministic symbol sample. The operations mirror the
   // CLI query commands but run against the already-built graph, so they time the
   // query itself rather than a re-index.
@@ -291,7 +327,14 @@ void write_json(const BenchmarkReport& report, std::ostream& out) {
         << "\"wall_ms\": " << s.wall_ms << ", "
         << "\"speedup\": " << s.speedup << "}";
   }
-  out << (report.scaling.empty() ? "]\n" : "\n  ]\n");
+  out << (report.scaling.empty() ? "],\n" : "\n  ],\n");
+  const PersistenceBenchmark& p = report.persistence;
+  out << "  \"persistence\": {\n";
+  out << "    \"cold_index_ms\": " << p.cold_index_ms << ",\n";
+  out << "    \"warm_load_ms\": " << p.warm_load_ms << ",\n";
+  out << "    \"index_file_bytes\": " << p.index_file_bytes << ",\n";
+  out << "    \"speedup\": " << p.speedup << "\n";
+  out << "  }\n";
   out << "}\n";
 }
 
@@ -350,6 +393,16 @@ void write_summary(const BenchmarkReport& report, std::ostream& out) {
       out << line;
     }
   }
+
+  const PersistenceBenchmark& p = report.persistence;
+  out << "startup (cold parse vs warm mmap load):\n";
+  std::snprintf(line, sizeof(line), "  cold (full parse)  %8.2f ms\n",
+                p.cold_index_ms);
+  out << line;
+  std::snprintf(line, sizeof(line), "  warm (mmap load)   %8.2f ms   %5.2fx\n",
+                p.warm_load_ms, p.speedup);
+  out << line;
+  out << "  index file         " << human_bytes(p.index_file_bytes) << "\n";
 }
 
 }  // namespace cartograph

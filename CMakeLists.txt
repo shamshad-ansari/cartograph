@@ -61,6 +61,7 @@ configure_file(
 add_library(cartograph_core
   src/parser.cpp
   src/graph.cpp
+  src/graph_io.cpp
   src/extractor.cpp
   src/indexer.cpp
   src/parallel.cpp

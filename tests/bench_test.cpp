@@ -82,3 +82,29 @@ TEST(Bench, EmitsJson) {
   EXPECT_NE(json.find("\"blast-radius\""), std::string::npos);
   EXPECT_NE(json.find("\"p99_us\""), std::string::npos);
 }
+
+// Persistence (issue 0014): the harness measures cold startup (full parse) versus
+// warm startup (mmap load) and the size of the on-disk index. The warm path skips
+// tree-sitter entirely, so its load time is measured and the index file is
+// nonempty; cold parse time is likewise recorded.
+TEST(Bench, MeasuresColdVersusWarmStartup) {
+  const cartograph::BenchmarkReport report = bench();
+
+  EXPECT_GT(report.persistence.cold_index_ms, 0.0);
+  EXPECT_GE(report.persistence.warm_load_ms, 0.0);
+  EXPECT_GT(report.persistence.index_file_bytes, 0u);
+}
+
+// The cold-vs-warm startup numbers are surfaced in both output forms.
+TEST(Bench, ReportsPersistenceInOutput) {
+  const cartograph::BenchmarkReport report = bench();
+
+  std::ostringstream json;
+  cartograph::write_json(report, json);
+  EXPECT_NE(json.str().find("\"warm_load_ms\""), std::string::npos);
+  EXPECT_NE(json.str().find("\"cold_index_ms\""), std::string::npos);
+
+  std::ostringstream summary;
+  cartograph::write_summary(report, summary);
+  EXPECT_NE(summary.str().find("warm"), std::string::npos);
+}

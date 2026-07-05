@@ -10,5 +10,8 @@
 # Editor/IDE settings
 /.vscode/
 
+# Persisted index cache written by `cartograph index` (ADR-0008)
+.cartograph.idx
+
 # Local issue tracker (not versioned)
 /issues/

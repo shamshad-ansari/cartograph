@@ -13,10 +13,34 @@
 #include "cartograph/bench.hpp"
 #include "cartograph/eval.hpp"
 #include "cartograph/graph.hpp"
+#include "cartograph/graph_io.hpp"
 #include "cartograph/indexer.hpp"
 #include "cartograph/parser.hpp"
 
 namespace {
+
+// Where a directory's persisted index lives (ADR-0008). `index` writes it and the
+// query commands memory-map it on a warm start instead of re-parsing.
+std::filesystem::path index_cache_path(const std::filesystem::path& dir) {
+  return dir / ".cartograph.idx";
+}
+
+// Serve `dir` from its persisted index if one is present and readable — a warm
+// start that mmaps the graph with no re-parse — otherwise index it from source.
+// An unreadable or foreign cache is a warning, not a failure: we re-index.
+cartograph::Graph load_or_index(const std::filesystem::path& dir) {
+  const std::filesystem::path cache = index_cache_path(dir);
+  std::error_code ec;
+  if (std::filesystem::exists(cache, ec)) {
+    try {
+      return cartograph::load_graph(cache);
+    } catch (const std::exception& e) {
+      std::cerr << "cartograph: warning: ignoring index " << cache << " ("
+                << e.what() << "), re-indexing\n";
+    }
+  }
+  return cartograph::index_directory(dir);
+}
 
 int usage(std::ostream& out) {
   out << "usage: cartograph <command> [args]\n\n"
@@ -134,7 +158,7 @@ int cmd_find_definition(const std::vector<std::string_view>& args) {
     return 1;
   }
 
-  const cartograph::Graph graph = cartograph::index_directory(root);
+  const cartograph::Graph graph = load_or_index(root);
 
   // Collect and sort by (file, line) so output is deterministic regardless of
   // directory iteration order. Only definitions (a body) count here; prototypes
@@ -166,7 +190,7 @@ int cmd_find_declarations(const std::vector<std::string_view>& args) {
     return 1;
   }
 
-  const cartograph::Graph graph = cartograph::index_directory(root);
+  const cartograph::Graph graph = load_or_index(root);
 
   // Only prototypes (FunctionDecl) — the answer to "where is this declared?".
   // Sorted by (file, line) for output independent of iteration order.
@@ -197,7 +221,7 @@ int cmd_who_calls(const std::vector<std::string_view>& args) {
     return 1;
   }
 
-  const cartograph::Graph graph = cartograph::index_directory(root);
+  const cartograph::Graph graph = load_or_index(root);
   report_diagnostics(graph);
 
   // A caller is listed once even if it calls the target repeatedly or the name
@@ -229,7 +253,7 @@ int cmd_blast_radius(const std::vector<std::string_view>& args) {
     return 1;
   }
 
-  const cartograph::Graph graph = cartograph::index_directory(root);
+  const cartograph::Graph graph = load_or_index(root);
   report_diagnostics(graph);
 
   // Seed the reverse traversal with every node carrying the name — its
@@ -264,7 +288,7 @@ int cmd_include_graph(const std::vector<std::string_view>& args) {
     return 1;
   }
 
-  const cartograph::Graph graph = cartograph::index_directory(root);
+  const cartograph::Graph graph = load_or_index(root);
 
   // A file is addressed by its basename; there is one File node per indexed file,
   // so at most one match in this non-recursive slice.
@@ -317,8 +341,18 @@ int cmd_index(const std::vector<std::string_view>& args) {
     return 1;
   }
 
-  const cartograph::Graph graph = cartograph::index_directory(root);
+  // A fresh cold index from source, then persist it so later query commands warm-
+  // start by memory-mapping it instead of re-parsing (ADR-0008, save-on-index).
+  const cartograph::Graph graph = load_or_index(root);
   report_diagnostics(graph);  // skipped-file warnings, to stderr
+
+  const std::filesystem::path cache = index_cache_path(root);
+  try {
+    cartograph::save_graph(graph, cache);
+  } catch (const std::exception& e) {
+    std::cerr << "cartograph: warning: could not write index " << cache << " ("
+              << e.what() << ")\n";
+  }
 
   // File count is the number of File nodes; the crawl makes one per indexed file.
   std::size_t files = 0;
@@ -329,7 +363,8 @@ int cmd_index(const std::vector<std::string_view>& args) {
   std::cout << "files:   " << files << '\n'
             << "nodes:   " << graph.size() << '\n'
             << "edges:   " << graph.edge_count() << '\n'
-            << "skipped: " << graph.skipped_files().size() << '\n';
+            << "skipped: " << graph.skipped_files().size() << '\n'
+            << "index:   " << cache.string() << '\n';
   return 0;
 }
 
@@ -346,7 +381,7 @@ int cmd_who_uses_type(const std::vector<std::string_view>& args) {
     return 1;
   }
 
-  const cartograph::Graph graph = cartograph::index_directory(root);
+  const cartograph::Graph graph = load_or_index(root);
 
   // Seed with every type node carrying the name — a tag and a typedef can share
   // one — and collect their referencing functions. A function is listed once

@@ -113,4 +113,30 @@ void Graph::add_skipped_file(SkippedFile skipped) {
   skipped_files_.push_back(std::move(skipped));
 }
 
+void Graph::adopt_mapping(std::shared_ptr<void> owner, StringArena arena,
+                          std::span<const NodeKind> kinds,
+                          std::span<const StringRef> names,
+                          std::span<const StringRef> files,
+                          std::span<const std::uint32_t> lines,
+                          std::span<const Linkage> linkages,
+                          std::span<const std::uint64_t> hashes) {
+  mapped_ = true;
+  mapping_ = std::move(owner);
+  strings_ = std::move(arena);
+  mapped_kind_ = kinds;
+  mapped_name_ = names;
+  mapped_file_ = files;
+  mapped_line_ = lines;
+  mapped_linkage_ = linkages;
+  mapped_hash_ = hashes;
+
+  // The name index is not persisted — it is rebuilt here from the mapped node
+  // names, matching the insertion order add_node would have produced (ascending
+  // NodeId), so nodes_named answers identically to the freshly-built graph.
+  by_name_.clear();
+  for (NodeId id = 0; id < kinds.size(); ++id) {
+    by_name_[std::string(strings_.view(names[id]))].push_back(id);
+  }
+}
+
 }  // namespace cartograph
