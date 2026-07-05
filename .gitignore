@@ -15,3 +15,8 @@
 
 # Local issue tracker (not versioned)
 /issues/
+
+# Python MCP adapter (mcp/): virtualenv and build/cache artifacts
+mcp/.venv/
+__pycache__/
+*.egg-info/
