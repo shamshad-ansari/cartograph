@@ -36,7 +36,7 @@ std::vector<std::string> caller_names(const cartograph::Graph& graph,
                                       cartograph::NodeId id) {
   std::vector<std::string> out;
   for (const cartograph::NodeId caller : graph.callers_of(id)) {
-    out.push_back(graph.node(caller).name);
+    out.emplace_back(graph.node(caller).name);
   }
   std::sort(out.begin(), out.end());
   return out;

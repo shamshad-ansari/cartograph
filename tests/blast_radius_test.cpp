@@ -25,7 +25,7 @@ std::vector<std::string> blast_radius(const cartograph::Graph& graph,
   std::set<std::pair<std::string, std::uint32_t>> seen;
   for (const cartograph::Caller& c :
        graph.transitive_callers(graph.nodes_named(name))) {
-    const cartograph::Node& node = graph.node(c.node);
+    const cartograph::NodeView node = graph.node(c.node);
     seen.emplace(std::filesystem::path(node.file).filename().string(),
                  node.line);
   }
@@ -44,7 +44,7 @@ std::map<std::string, std::uint32_t> depths(const cartograph::Graph& graph,
   std::map<std::string, std::uint32_t> out;
   for (const cartograph::Caller& c :
        graph.transitive_callers(graph.nodes_named(name))) {
-    const cartograph::Node& node = graph.node(c.node);
+    const cartograph::NodeView node = graph.node(c.node);
     const std::string key =
         std::filesystem::path(node.file).filename().string() + ":" +
         std::to_string(node.line);

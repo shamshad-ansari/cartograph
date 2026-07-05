@@ -22,7 +22,7 @@ std::vector<std::string> declarations(const cartograph::Graph& graph,
                                       const std::string& name) {
   std::vector<std::string> out;
   for (const cartograph::NodeId id : graph.nodes_named(name)) {
-    const cartograph::Node& node = graph.node(id);
+    const cartograph::NodeView node = graph.node(id);
     if (node.kind != cartograph::NodeKind::FunctionDecl) continue;
     out.push_back(std::filesystem::path(node.file).filename().string() + ":" +
                   std::to_string(node.line));
@@ -84,7 +84,7 @@ TEST(Declarations, DeclarationLinksToItsDefinition) {
   const std::optional<cartograph::NodeId> def = graph.definition_of(decl);
   ASSERT_TRUE(def.has_value()) << "area's declaration must link to a definition";
 
-  const cartograph::Node& node = graph.node(*def);
+  const cartograph::NodeView node = graph.node(*def);
   EXPECT_EQ(node.kind, cartograph::NodeKind::Function);
   EXPECT_EQ(std::filesystem::path(node.file).filename(), "shape.c");
   EXPECT_EQ(node.line, 3u);

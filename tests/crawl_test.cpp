@@ -80,7 +80,7 @@ TEST(Crawl, StoresDeterministicContentHashPerFile) {
   std::set<std::uint64_t> hashes;
   std::size_t files = 0;
   for (cartograph::NodeId id = 0; id < a.size(); ++id) {
-    const cartograph::Node& node = a.node(id);
+    const cartograph::NodeView node = a.node(id);
     if (node.kind != cartograph::NodeKind::File) continue;
     ++files;
     EXPECT_NE(node.hash, 0u) << node.file << " has no content hash";

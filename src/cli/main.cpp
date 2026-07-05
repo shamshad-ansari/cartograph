@@ -115,7 +115,7 @@ void report_diagnostics(const cartograph::Graph& graph) {
               << d.candidates.size()
               << " conflicting external definitions:\n";
     for (const cartograph::NodeId id : d.candidates) {
-      const cartograph::Node& node = graph.node(id);
+      const cartograph::NodeView node = graph.node(id);
       std::cerr << "  " << node.file << ':' << node.line << '\n';
     }
   }
@@ -141,7 +141,7 @@ int cmd_find_definition(const std::vector<std::string_view>& args) {
   // are FunctionDecl nodes answered by find-declarations.
   std::vector<std::pair<std::string, std::uint32_t>> hits;
   for (const cartograph::NodeId id : graph.nodes_named(name)) {
-    const cartograph::Node& node = graph.node(id);
+    const cartograph::NodeView node = graph.node(id);
     if (node.kind != cartograph::NodeKind::Function) continue;
     hits.emplace_back(node.file, node.line);
   }
@@ -172,7 +172,7 @@ int cmd_find_declarations(const std::vector<std::string_view>& args) {
   // Sorted by (file, line) for output independent of iteration order.
   std::vector<std::pair<std::string, std::uint32_t>> hits;
   for (const cartograph::NodeId id : graph.nodes_named(name)) {
-    const cartograph::Node& node = graph.node(id);
+    const cartograph::NodeView node = graph.node(id);
     if (node.kind != cartograph::NodeKind::FunctionDecl) continue;
     hits.emplace_back(node.file, node.line);
   }
@@ -205,7 +205,7 @@ int cmd_who_calls(const std::vector<std::string_view>& args) {
   std::set<std::pair<std::string, std::uint32_t>> hits;
   for (const cartograph::NodeId callee : graph.nodes_named(name)) {
     for (const cartograph::NodeId caller : graph.callers_of(callee)) {
-      const cartograph::Node& node = graph.node(caller);
+      const cartograph::NodeView node = graph.node(caller);
       hits.emplace(node.file, node.line);
     }
   }
@@ -241,7 +241,7 @@ int cmd_blast_radius(const std::vector<std::string_view>& args) {
 
   std::set<std::pair<std::string, std::uint32_t>> hits;
   for (const cartograph::Caller& c : reached) {
-    const cartograph::Node& node = graph.node(c.node);
+    const cartograph::NodeView node = graph.node(c.node);
     hits.emplace(node.file, node.line);
   }
 
@@ -285,10 +285,10 @@ int cmd_include_graph(const std::vector<std::string_view>& args) {
   std::set<std::pair<std::string, bool>> unresolved;  // (target, is_system)
   for (const cartograph::NodeId target : targets) {
     for (const cartograph::NodeId id : graph.includes_of(target)) {
-      includes.insert(graph.node(id).file);
+      includes.emplace(graph.node(id).file);
     }
     for (const cartograph::NodeId id : graph.included_by(target)) {
-      included_by.insert(graph.node(id).file);
+      included_by.emplace(graph.node(id).file);
     }
     for (const cartograph::UnresolvedInclude& u : graph.unresolved_includes()) {
       if (u.includer == target) unresolved.emplace(u.target, u.is_system);
@@ -356,7 +356,7 @@ int cmd_who_uses_type(const std::vector<std::string_view>& args) {
   for (const cartograph::NodeId type : graph.nodes_named(name)) {
     if (!cartograph::is_type_node(graph.node(type).kind)) continue;
     for (const cartograph::NodeId user : graph.users_of(type)) {
-      const cartograph::Node& node = graph.node(user);
+      const cartograph::NodeView node = graph.node(user);
       hits.emplace(node.file, node.line);
     }
   }

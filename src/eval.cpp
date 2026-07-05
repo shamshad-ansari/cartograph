@@ -167,8 +167,9 @@ std::vector<EvalLocation> cartograph_query(const Graph& graph,
   // find-definition: exactly the function-definition nodes carrying the name.
   if (query == EvalQuery::FindDefinition) {
     for (const NodeId id : graph.nodes_named(symbol)) {
-      const Node& n = graph.node(id);
-      if (n.kind == NodeKind::Function) out.push_back({rel_key(n.file, dir), n.line});
+      const NodeView n = graph.node(id);
+      if (n.kind == NodeKind::Function)
+        out.push_back({rel_key(std::string(n.file), dir), n.line});
     }
     return as_set(out);
   }
@@ -190,7 +191,7 @@ std::vector<EvalLocation> cartograph_query(const Graph& graph,
     NodeId caller_node = 0;
     bool found = false;
     for (const NodeId id : graph.nodes_named(caller)) {
-      const Node& n = graph.node(id);
+      const NodeView n = graph.node(id);
       if (n.kind == NodeKind::Function && n.file == file) {
         caller_node = id;
         found = true;

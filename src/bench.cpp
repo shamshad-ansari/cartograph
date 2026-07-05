@@ -112,7 +112,7 @@ std::vector<std::string> sample_function_names(const Graph& graph,
   std::vector<std::string> names;
   for (NodeId id = 0; id < graph.size(); ++id) {
     if (graph.node(id).kind == NodeKind::Function) {
-      names.push_back(graph.node(id).name);
+      names.emplace_back(graph.node(id).name);
     }
   }
   std::sort(names.begin(), names.end());

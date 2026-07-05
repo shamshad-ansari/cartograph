@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "cartograph/string_arena.hpp"
+
 namespace cartograph {
 
 // Nodes are addressed by a dense integer id into a flat array, never by pointer
@@ -47,8 +49,10 @@ enum class Linkage {
   Internal,
 };
 
-// One entity in the code graph. For this slice: a function definition and where
-// it was found.
+// One entity in the code graph, as passed to `add_node`. This is a transient
+// construction record, not the storage: `add_node` interns `name` and `file`
+// into the graph's string arena and scatters the scalars across its per-field
+// arrays (ADR-0007), so no `Node` — and no per-node heap string — is retained.
 struct Node {
   NodeKind kind;
   std::string name;
@@ -56,6 +60,20 @@ struct Node {
   std::uint32_t line;       // 1-based line of the definition's name
   Linkage linkage;          // internal (static) vs external, for resolution
   std::uint64_t hash = 0;   // content hash of the file (File nodes only; else 0)
+};
+
+// A read-only view of one node, materialized on demand from the struct-of-arrays
+// storage. `name` and `file` are string_views into the graph's string arena and
+// stay valid for the graph's lifetime; the scalars are plain copies. Returned by
+// value from `Graph::node` — cheap, and the layout keeps the strings unowned so
+// there is still exactly one copy of each name/path in the arena.
+struct NodeView {
+  NodeKind kind;
+  std::string_view name;
+  std::string_view file;
+  std::uint32_t line;
+  Linkage linkage;
+  std::uint64_t hash;
 };
 
 // A node reached by walking CALLS edges in reverse from a query target, paired
@@ -98,17 +116,26 @@ struct Diagnostic {
   std::vector<NodeId> candidates;  // every definition the call was linked to
 };
 
-// In-memory code graph. Nodes live in a flat vector addressed by NodeId, with a
-// secondary index from name to the nodes that carry it — the name index that
-// answers find-definition. Kept deliberately simple (a vector graph) ahead of
-// the struct-of-arrays migration in issue 0013.
+// In-memory code graph in struct-of-arrays layout (ADR-0007, issue 0013): each
+// node attribute lives in its own dense array addressed by NodeId, and names and
+// file paths are interned once into a single string arena and referenced by
+// offset/length. A secondary index from name to the nodes that carry it answers
+// find-definition. No pointers between nodes/edges — every reference is an
+// integer id or arena offset, which keeps the graph position-independent.
 class Graph {
  public:
-  // Append a node and index it by name. Returns its NodeId.
+  // Append a node — interning its name and file into the arena and pushing its
+  // scalars onto the per-field arrays — and index it by name. Returns its NodeId.
   NodeId add_node(Node node);
 
-  const Node& node(NodeId id) const { return nodes_[id]; }
-  std::size_t size() const noexcept { return nodes_.size(); }
+  // A view of node `id`, materialized from the per-field arrays and arena. Cheap
+  // to return by value; its string_views point into the arena, not the view.
+  NodeView node(NodeId id) const {
+    return NodeView{node_kind_[id], strings_.view(node_name_[id]),
+                    strings_.view(node_file_[id]), node_line_[id],
+                    node_linkage_[id], node_hash_[id]};
+  }
+  std::size_t size() const noexcept { return node_kind_.size(); }
 
   // Total number of edges of every kind — CALLS, INCLUDES, USES_TYPE, and
   // DECLARES — for the index summary. INCLUDES is counted once per edge, not
@@ -186,7 +213,15 @@ class Graph {
   const std::vector<SkippedFile>& skipped_files() const { return skipped_files_; }
 
  private:
-  std::vector<Node> nodes_;
+  // Struct-of-arrays node storage: one dense array per attribute, all indexed by
+  // NodeId. Names and files are StringRefs (offset/length) into `strings_`.
+  StringArena strings_;
+  std::vector<NodeKind> node_kind_;
+  std::vector<StringRef> node_name_;
+  std::vector<StringRef> node_file_;
+  std::vector<std::uint32_t> node_line_;
+  std::vector<Linkage> node_linkage_;
+  std::vector<std::uint64_t> node_hash_;
   std::unordered_map<std::string, std::vector<NodeId>> by_name_;
   std::unordered_map<NodeId, std::vector<NodeId>> callers_by_callee_;
   std::unordered_map<NodeId, std::vector<NodeId>> includees_by_file_;

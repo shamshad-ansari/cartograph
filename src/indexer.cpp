@@ -273,11 +273,11 @@ Graph index_directory(const std::filesystem::path& dir, const IndexOptions& opts
   parallel_for(pending.size(), workers, [&](std::size_t i) {
     const PendingCall& call = pending[i];
     CallResolution& out = resolutions[i];
-    const std::string& caller_file = graph.node(call.caller).file;
+    const std::string_view caller_file = graph.node(call.caller).file;
     const std::vector<NodeId>& candidates = graph.nodes_named(call.callee);
 
     for (const NodeId id : candidates) {
-      const Node& def = graph.node(id);
+      const NodeView def = graph.node(id);
       if (def.kind != NodeKind::Function) continue;  // a call binds to a body
       if (def.linkage == Linkage::Internal && def.file == caller_file) {
         out.edges.push_back(id);
@@ -286,13 +286,14 @@ Graph index_directory(const std::filesystem::path& dir, const IndexOptions& opts
     }
 
     for (const NodeId id : candidates) {
-      const Node& def = graph.node(id);
+      const NodeView def = graph.node(id);
       if (def.kind == NodeKind::Function && def.linkage == Linkage::External) {
         out.edges.push_back(id);
       }
     }
     if (out.edges.size() > 1) {
-      out.diagnostic = Diagnostic{call.callee, caller_file, call.line, out.edges};
+      out.diagnostic =
+          Diagnostic{call.callee, std::string(caller_file), call.line, out.edges};
     }
   });
 
@@ -317,7 +318,7 @@ Graph index_directory(const std::filesystem::path& dir, const IndexOptions& opts
     std::vector<NodeId> externals;
     std::vector<NodeId> definitions;
     for (const NodeId id : candidates) {
-      const Node& def = graph.node(id);
+      const NodeView def = graph.node(id);
       if (def.kind != NodeKind::Function) continue;
       definitions.push_back(id);
       if (def.linkage == Linkage::External) externals.push_back(id);
@@ -337,7 +338,8 @@ Graph index_directory(const std::filesystem::path& dir, const IndexOptions& opts
   // errors (a project's external headers are simply not in the graph).
   for (const PendingInclude& inc : pending_includes) {
     if (!inc.is_system) {
-      const std::filesystem::path includer_path = graph.node(inc.includer).file;
+      const std::filesystem::path includer_path{
+          std::string(graph.node(inc.includer).file)};
       const std::string candidate =
           (includer_path.parent_path() / inc.target).lexically_normal().string();
       const auto found = file_by_path.find(candidate);

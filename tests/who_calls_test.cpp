@@ -23,7 +23,7 @@ std::vector<std::string> callers(const cartograph::Graph& graph,
   std::set<std::pair<std::string, std::uint32_t>> seen;
   for (const cartograph::NodeId callee : graph.nodes_named(name)) {
     for (const cartograph::NodeId caller : graph.callers_of(callee)) {
-      const cartograph::Node& node = graph.node(caller);
+      const cartograph::NodeView node = graph.node(caller);
       seen.emplace(std::filesystem::path(node.file).filename().string(),
                    node.line);
     }

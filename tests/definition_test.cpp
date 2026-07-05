@@ -20,7 +20,7 @@ std::vector<std::string> locations(const cartograph::Graph& graph,
                                    const std::string& name) {
   std::vector<std::string> out;
   for (const cartograph::NodeId id : graph.nodes_named(name)) {
-    const cartograph::Node& node = graph.node(id);
+    const cartograph::NodeView node = graph.node(id);
     out.push_back(std::filesystem::path(node.file).filename().string() + ":" +
                   std::to_string(node.line));
   }

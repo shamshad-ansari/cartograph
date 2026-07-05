@@ -27,7 +27,7 @@ std::vector<std::string> users(const cartograph::Graph& graph,
   for (const cartograph::NodeId type : graph.nodes_named(name)) {
     if (!cartograph::is_type_node(graph.node(type).kind)) continue;
     for (const cartograph::NodeId user : graph.users_of(type)) {
-      const cartograph::Node& node = graph.node(user);
+      const cartograph::NodeView node = graph.node(user);
       seen.emplace(std::filesystem::path(node.file).filename().string(),
                    node.line);
     }

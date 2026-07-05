@@ -6,9 +6,14 @@
 namespace cartograph {
 
 NodeId Graph::add_node(Node node) {
-  const NodeId id = static_cast<NodeId>(nodes_.size());
+  const NodeId id = static_cast<NodeId>(node_kind_.size());
   by_name_[node.name].push_back(id);
-  nodes_.push_back(std::move(node));
+  node_kind_.push_back(node.kind);
+  node_name_.push_back(strings_.intern(node.name));
+  node_file_.push_back(strings_.intern(node.file));
+  node_line_.push_back(node.line);
+  node_linkage_.push_back(node.linkage);
+  node_hash_.push_back(node.hash);
   return id;
 }
 

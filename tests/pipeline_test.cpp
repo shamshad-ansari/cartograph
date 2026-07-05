@@ -26,8 +26,8 @@ void expect_graphs_identical(const cartograph::Graph& a,
   ASSERT_EQ(a.edge_count(), b.edge_count());
 
   for (cartograph::NodeId id = 0; id < a.size(); ++id) {
-    const cartograph::Node& na = a.node(id);
-    const cartograph::Node& nb = b.node(id);
+    const cartograph::NodeView na = a.node(id);
+    const cartograph::NodeView nb = b.node(id);
     EXPECT_EQ(na.kind, nb.kind) << "node " << id;
     EXPECT_EQ(na.name, nb.name) << "node " << id;
     EXPECT_EQ(na.file, nb.file) << "node " << id;
