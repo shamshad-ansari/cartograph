@@ -18,6 +18,10 @@ struct BenchmarkOptions {
   // is deterministic (evenly spaced over the sorted names) so the percentiles
   // are stable across runs; capped at the number of functions in the repo.
   std::size_t query_samples = 50;
+  // Also measure a thread-scaling curve — re-index at 1, 2, 4, … threads up to
+  // the hardware concurrency — to report the parallel pipeline's speedup
+  // (issue 0012). Off makes a bench run a single-configuration measurement.
+  bool thread_scaling = true;
 };
 
 // Index-phase throughput and footprint over the target repository.
@@ -43,6 +47,16 @@ struct QueryLatency {
   double max_us = 0;
 };
 
+// One point on the thread-scaling curve: the median index wall time at a given
+// worker count, and its speedup over the single-threaded (1-worker) baseline.
+// The graph is identical at every thread count, so this measures only how much
+// faster the same work gets — the parallel pipeline's return on cores.
+struct ThreadScalingPoint {
+  unsigned threads = 0;
+  double wall_ms = 0;   // median index wall-clock at this worker count
+  double speedup = 0;   // baseline (1-thread) wall_ms / this wall_ms
+};
+
 // A full benchmark report: index throughput plus per-query latency, ready to be
 // emitted as JSON (machine-readable, for tracking across changes) or as a
 // human-readable summary.
@@ -50,6 +64,7 @@ struct BenchmarkReport {
   std::string repo;
   IndexBenchmark index;
   std::vector<QueryLatency> queries;
+  std::vector<ThreadScalingPoint> scaling;  // empty unless opts.thread_scaling
 };
 
 // Run the benchmark over `dir`: index it `opts.index_runs` times to measure

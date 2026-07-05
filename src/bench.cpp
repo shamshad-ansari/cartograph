@@ -14,11 +14,24 @@
 
 #include "cartograph/graph.hpp"
 #include "cartograph/indexer.hpp"
+#include "cartograph/parallel.hpp"
 
 namespace cartograph {
 namespace {
 
 using Clock = std::chrono::steady_clock;
+
+// The worker counts to probe for the scaling curve: 1, 2, 4, … up to the
+// hardware concurrency, with the exact hardware count appended when it is not
+// already a power of two. Doubling keeps the curve short and readable while
+// still showing where speedup flattens.
+std::vector<unsigned> scaling_thread_counts() {
+  const unsigned hw = default_thread_count();
+  std::vector<unsigned> counts;
+  for (unsigned t = 1; t < hw; t *= 2) counts.push_back(t);
+  counts.push_back(hw);
+  return counts;
+}
 
 // Individual queries run in microseconds, near the timer's own noise floor, so a
 // single reading is unreliable. Each sampled query is timed a few times and the
@@ -186,6 +199,32 @@ BenchmarkReport run_benchmark(const std::filesystem::path& dir,
         static_cast<double>(report.index.lines) / seconds;
   }
 
+  // Thread-scaling curve (issue 0012): re-index at 1, 2, 4, … workers and report
+  // each configuration's median wall time and its speedup over single-threaded.
+  // The graph is identical at every count (a regression test guarantees it), so
+  // this isolates the parallel pipeline's speedup from any change in output.
+  if (opts.thread_scaling) {
+    double baseline_ms = 0;
+    for (const unsigned threads : scaling_thread_counts()) {
+      std::vector<double> point_ms;
+      point_ms.reserve(runs);
+      for (int r = 0; r < runs; ++r) {
+        const Clock::time_point t0 = Clock::now();
+        const Graph g = index_directory(dir, IndexOptions{threads});
+        const Clock::time_point t1 = Clock::now();
+        point_ms.push_back(
+            std::chrono::duration<double, std::milli>(t1 - t0).count());
+      }
+      ThreadScalingPoint point;
+      point.threads = threads;
+      point.wall_ms = percentile(point_ms, 0.50);
+      if (threads == 1) baseline_ms = point.wall_ms;
+      point.speedup =
+          point.wall_ms > 0 ? baseline_ms / point.wall_ms : 0.0;
+      report.scaling.push_back(point);
+    }
+  }
+
   // Query latency over a deterministic symbol sample. The operations mirror the
   // CLI query commands but run against the already-built graph, so they time the
   // query itself rather than a re-index.
@@ -243,7 +282,16 @@ void write_json(const BenchmarkReport& report, std::ostream& out) {
         << "\"max_us\": " << q.max_us << "}"
         << (i + 1 < report.queries.size() ? "," : "") << "\n";
   }
-  out << "  }\n";
+  out << "  },\n";
+  out << "  \"scaling\": [";
+  for (std::size_t i = 0; i < report.scaling.size(); ++i) {
+    const ThreadScalingPoint& s = report.scaling[i];
+    out << (i == 0 ? "\n" : ",\n")
+        << "    {\"threads\": " << s.threads << ", "
+        << "\"wall_ms\": " << s.wall_ms << ", "
+        << "\"speedup\": " << s.speedup << "}";
+  }
+  out << (report.scaling.empty() ? "]\n" : "\n  ]\n");
   out << "}\n";
 }
 
@@ -291,6 +339,16 @@ void write_summary(const BenchmarkReport& report, std::ostream& out) {
                   "  %-16s p50 %8.2f   p95 %8.2f   p99 %8.2f\n", q.name.c_str(),
                   q.p50_us, q.p95_us, q.p99_us);
     out << line;
+  }
+
+  if (!report.scaling.empty()) {
+    out << "thread scaling (index wall vs workers):\n";
+    for (const ThreadScalingPoint& s : report.scaling) {
+      std::snprintf(line, sizeof(line),
+                    "  %2u threads       %8.2f ms   %5.2fx\n", s.threads,
+                    s.wall_ms, s.speedup);
+      out << line;
+    }
   }
 }
 
