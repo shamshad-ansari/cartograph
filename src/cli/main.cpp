@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "cartograph/bench.hpp"
+#include "cartograph/eval.hpp"
 #include "cartograph/graph.hpp"
 #include "cartograph/indexer.hpp"
 #include "cartograph/parser.hpp"
@@ -38,7 +39,9 @@ int usage(std::ostream& out) {
          "print file/node/edge counts\n"
          "  bench <path> [--json] [--runs N] [--sample N]\n"
          "                                       measure index throughput, peak "
-         "RSS, and query-latency percentiles over <path>\n";
+         "RSS, and query-latency percentiles over <path>\n"
+         "  eval <path> --truth <file> [--json]  score cartograph vs grep for "
+         "precision/recall over a labelled ground-truth set\n";
   return 2;
 }
 
@@ -423,6 +426,57 @@ int cmd_bench(const std::vector<std::string_view>& args) {
   return 0;
 }
 
+int cmd_eval(const std::vector<std::string_view>& args) {
+  std::string_view path;
+  std::string_view truth;
+  bool as_json = false;
+
+  // Parse `<path> --truth <file> [--json]`. The first bare argument is the corpus
+  // directory; --truth names the labelled ground-truth file.
+  for (std::size_t i = 0; i < args.size(); ++i) {
+    if (args[i] == "--json") {
+      as_json = true;
+    } else if (args[i] == "--truth") {
+      if (++i >= args.size()) {
+        std::cerr << "cartograph: '--truth' expects a file\n";
+        return usage(std::cerr);
+      }
+      truth = args[i];
+    } else if (path.empty()) {
+      path = args[i];
+    } else {
+      std::cerr << "cartograph: unexpected argument '" << args[i] << "'\n";
+      return usage(std::cerr);
+    }
+  }
+
+  if (path.empty() || truth.empty()) {
+    std::cerr << "cartograph: 'eval' expects <path> --truth <file>\n";
+    return usage(std::cerr);
+  }
+  const std::filesystem::path root(path);
+  if (!std::filesystem::is_directory(root)) {
+    std::cerr << "cartograph: not a directory: '" << path << "'\n";
+    return 1;
+  }
+
+  try {
+    const std::vector<cartograph::GroundTruth> ground_truth =
+        cartograph::load_ground_truth(std::filesystem::path(truth));
+    const cartograph::EvalReport report =
+        cartograph::run_eval(root, ground_truth);
+    if (as_json) {
+      cartograph::write_eval_json(report, std::cout);
+    } else {
+      cartograph::write_eval_summary(report, std::cout);
+    }
+  } catch (const std::exception& e) {
+    std::cerr << "cartograph: " << e.what() << '\n';
+    return 1;
+  }
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -464,6 +518,9 @@ int main(int argc, char** argv) {
   }
   if (command == "bench") {
     return cmd_bench(std::vector<std::string_view>(argv + 2, argv + argc));
+  }
+  if (command == "eval") {
+    return cmd_eval(std::vector<std::string_view>(argv + 2, argv + argc));
   }
 
   std::cerr << "cartograph: unknown command '" << command << "'\n";

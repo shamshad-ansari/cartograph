@@ -1,0 +1,40 @@
+# Ground truth for the precision/recall evaluation (issue 0011).
+#
+# Each line is a human-labelled, human-verified query over the sibling C corpus:
+#     <query> <symbol> [<file:line> ...]
+# where <query> is `find-definition` or `who-calls`, and the locations are the
+# TRUE answer set — for find-definition, every definition site of the symbol; for
+# who-calls, every source line that actually calls it. Locations are relative to
+# this directory. A line with no locations is a true-empty answer (e.g. a function
+# nothing calls). Blank lines and `#` comments are ignored.
+#
+# The corpus is seeded with the cases a textual search cannot tell apart from a
+# real hit: header declarations, a function name inside a comment, a name inside a
+# string literal ("store_open failed"), and two file-local `static` functions both
+# named `init`. cartograph resolves each structurally; grep matches the text.
+
+# ── find-definition: the definition site(s) of the symbol ───────────────────
+find-definition store_open    store.c:7
+find-definition store_close   store.c:12
+find-definition store_get     store.c:16
+find-definition store_put     store.c:21
+find-definition cache_lookup  cache.c:7
+find-definition cache_insert  cache.c:12
+find-definition util_hash     util.c:6
+find-definition init          cache.c:4 util.c:2
+find-definition log_msg       log.c:3
+find-definition run           main.c:8
+find-definition main          main.c:17
+
+# ── who-calls: the line(s) that actually call the symbol ────────────────────
+who-calls store_open    main.c:9
+who-calls store_close   main.c:13
+who-calls store_get     cache.c:9
+who-calls store_put     cache.c:13
+who-calls cache_lookup  main.c:11
+who-calls cache_insert
+who-calls util_hash     main.c:12
+who-calls init          cache.c:8 util.c:7
+who-calls log_msg       main.c:10
+who-calls run           main.c:18
+who-calls main
